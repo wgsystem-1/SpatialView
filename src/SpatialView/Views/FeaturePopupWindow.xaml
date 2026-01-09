@@ -1,0 +1,132 @@
+<Window x:Class="SpatialView.Views.FeaturePopupWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="피처 속성"
+        Width="420" Height="520"
+        MinWidth="320" MinHeight="250"
+        WindowStartupLocation="Manual"
+        Background="{DynamicResource MaterialDesignPaper}"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}"
+        ResizeMode="CanResizeWithGrip">
+    
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#1565C0" Padding="16,14">
+            <StackPanel>
+                <TextBlock Text="{Binding LayerName}" 
+                           FontSize="16" FontWeight="Bold"
+                           Foreground="White"
+                           TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding FeatureId, StringFormat='FID: {0}'}" 
+                           FontSize="13" 
+                           Foreground="#B3E5FC"
+                           Margin="0,4,0,0"/>
+            </StackPanel>
+        </Border>
+        
+        <!-- Toolbar -->
+        <Border Grid.Row="1" Background="{DynamicResource MaterialDesignCardBackground}"
+                BorderBrush="{DynamicResource MaterialDesignDivider}"
+                BorderThickness="0,0,0,1"
+                Padding="8,4">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <!-- Select All -->
+                <CheckBox Grid.Column="0" 
+                          Content="전체 선택"
+                          IsChecked="{Binding SelectAll}"
+                          VerticalAlignment="Center"
+                          Margin="4,0"/>
+                
+                <!-- Copy/Paste Buttons -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding CopyAttributesCommand}"
+                            ToolTip="선택 속성 복사 (Ctrl+C)"
+                            Width="32" Height="32">
+                        <materialDesign:PackIcon Kind="ContentCopy" Width="18" Height="18"/>
+                    </Button>
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding PasteAttributesCommand}"
+                            ToolTip="속성 붙여넣기 (Ctrl+V)"
+                            Width="32" Height="32">
+                        <materialDesign:PackIcon Kind="ContentPaste" Width="18" Height="18"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+        
+        <!-- Attribute List -->
+        <ListView Grid.Row="2" 
+                  x:Name="AttributeListView"
+                  ItemsSource="{Binding Attributes}"
+                  BorderThickness="0"
+                  Margin="8,8,8,0">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Width="36">
+                        <GridViewColumn.HeaderTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding DataContext.SelectAll, RelativeSource={RelativeSource AncestorType=ListView}}"
+                                          HorizontalAlignment="Center"
+                                          ToolTip="전체 선택"/>
+                            </DataTemplate>
+                        </GridViewColumn.HeaderTemplate>
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                          HorizontalAlignment="Center"/>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="필드" Width="100" DisplayMemberBinding="{Binding Key}"/>
+                    <GridViewColumn Header="값" Width="200" DisplayMemberBinding="{Binding Value}"/>
+                </GridView>
+            </ListView.View>
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    <Setter Property="Padding" Value="0,4"/>
+                </Style>
+            </ListView.ItemContainerStyle>
+        </ListView>
+        
+        
+        <!-- Footer Buttons -->
+        <Border Grid.Row="3" Background="{DynamicResource MaterialDesignCardBackground}"
+                BorderBrush="{DynamicResource MaterialDesignDivider}"
+                BorderThickness="0,1,0,0">
+            <StackPanel Orientation="Horizontal" 
+                        HorizontalAlignment="Right" Margin="12,8">
+                <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                        Command="{Binding ZoomToFeatureCommand}"
+                        Margin="0,0,8,0"
+                        Height="32"
+                        ToolTip="피처 위치로 이동">
+                    <StackPanel Orientation="Horizontal">
+                        <materialDesign:PackIcon Kind="MagnifyExpand" VerticalAlignment="Center" Width="18" Height="18"/>
+                        <TextBlock Text="줌" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button Content="닫기" 
+                        Style="{StaticResource MaterialDesignFlatButton}"
+                        Click="CloseButton_Click"
+                        Height="32"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
+

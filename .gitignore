@@ -1,0 +1,79 @@
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# NuGet
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Build results
+[Dd]ebugPublic/
+[Rr]eleases/
+build/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+
+# Windows image file caches
+Thumbs.db
+ehthumbs.db
+
+# Folder config file
+Desktop.ini
+
+# Recycle Bin used on file shares
+$RECYCLE.BIN/
+
+# VS Code
+.vscode/
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Publish output
+publish/
+
+# GDAL data (will be copied during build)
+gdal-data/
+projlib/
+win-x64/
+
+# Test outputs
+TestResults/
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+~$*
+
+# Binary log
+*.binlog

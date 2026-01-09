@@ -1,0 +1,26 @@
+﻿<Application x:Class="SpatialView.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:converters="clr-namespace:SpatialView.Converters"
+             xmlns:local="clr-namespace:SpatialView">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Material Design 테마 -->
+                <materialDesign:BundledTheme BaseTheme="Light" PrimaryColor="Blue" SecondaryColor="Orange" />
+                <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesign2.Defaults.xaml" />
+                
+                <!-- 앱 커스텀 리소스 -->
+                <ResourceDictionary Source="Themes/Colors.xaml" />
+                <!-- 아이콘 리소스 -->
+                <ResourceDictionary Source="Resources/Icons/Icons.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            
+            <!-- Converters -->
+            <converters:BoolToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+            <converters:InverseIntToVisibilityConverter x:Key="InverseIntToVisibilityConverter"/>
+            <converters:EnumToBoolConverter x:Key="EnumToBoolConverter"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

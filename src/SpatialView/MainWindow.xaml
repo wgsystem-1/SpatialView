@@ -1,0 +1,653 @@
+﻿<Window x:Class="SpatialView.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:local="clr-namespace:SpatialView"
+        xmlns:vm="clr-namespace:SpatialView.ViewModels"
+        xmlns:controls="clr-namespace:SpatialView.Views.Controls"
+        xmlns:core="clr-namespace:SpatialView.Core.GisEngine;assembly=SpatialView.Core"
+        mc:Ignorable="d"
+        Title="{Binding Title}" 
+        Height="720" Width="1280"
+        MinHeight="600" MinWidth="900"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BackgroundBrush}"
+        d:DataContext="{d:DesignInstance Type=vm:MainViewModel, IsDesignTimeCreatable=False}">
+    
+    <Grid>
+        <Grid.RowDefinitions>
+            <!-- Toolbar -->
+            <RowDefinition Height="48"/>
+            <!-- Content Area -->
+            <RowDefinition Height="*"/>
+            <!-- Attribute Panel -->
+            <RowDefinition Height="Auto"/>
+            <!-- Status Bar -->
+            <RowDefinition Height="24"/>
+        </Grid.RowDefinitions>
+        
+        <!-- ===== TOOLBAR ===== -->
+        <Border Grid.Row="0" 
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <Border.Effect>
+                <DropShadowEffect ShadowDepth="1" BlurRadius="3" Opacity="0.12" Direction="270"/>
+            </Border.Effect>
+            
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <!-- Logo & Title -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="16,0,8,0" VerticalAlignment="Center">
+                    <materialDesign:PackIcon Kind="MapMarker" Width="28" Height="28" 
+                                             Foreground="{StaticResource IconPrimaryBrush}"
+                                             VerticalAlignment="Center"/>
+                    <TextBlock Text="SpatialView" FontSize="18" FontWeight="SemiBold" 
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               Margin="8,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+                
+                <!-- Separator -->
+                <Rectangle Grid.Column="1" Width="1" Height="28" Fill="{StaticResource BorderBrush}" Margin="8,0"/>
+                
+                <!-- Action Buttons -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="8,0" VerticalAlignment="Center">
+                    <!-- New Project -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding NewProjectCommand}"
+                            ToolTip="새 프로젝트 (Ctrl+N)"
+                            Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_Ribbon_Create}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </Button>
+                    
+                    <!-- Open Project -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding OpenProjectCommand}"
+                            ToolTip="프로젝트 열기 (Ctrl+Shift+O)"
+                            Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_Open}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </Button>
+                    
+                    <!-- Save Project -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding SaveProjectCommand}"
+                            ToolTip="프로젝트 저장 (Ctrl+S)"
+                            Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_Save}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </Button>
+                    
+                    <Rectangle Width="1" Height="28" Fill="{StaticResource BorderBrush}" Margin="8,0"/>
+                    
+                    <!-- Add Layer (Open File) -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding OpenFileCommand}"
+                            ToolTip="파일 열기 (Ctrl+O)"
+                            Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_Ribbon_SelectByAttributes}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </Button>
+                    
+                    <!-- Open FileGDB Folder -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding OpenFolderCommand}"
+                            ToolTip="FileGDB 폴더 선택 (.gdb)"
+                            Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_Ribbon_SelectByLocation}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </Button>
+                    
+                    <Rectangle Width="1" Height="28" Fill="{StaticResource BorderBrush}" Margin="8,0"/>
+                    
+                    <!-- Zoom In -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding MapViewModel.ZoomInCommand}"
+                            ToolTip="확대"
+                            Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_ToolbarZoomIn}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </Button>
+                    
+                    <!-- Zoom Out -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding MapViewModel.ZoomOutCommand}"
+                            ToolTip="축소"
+                            Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_ToolbarZoomOut}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </Button>
+                    
+                    <Rectangle Width="1" Height="28" Fill="{StaticResource BorderBrush}" Margin="8,0"/>
+                    
+                    <!-- Map Tools -->
+                    <!-- Zoom Window Tool -->
+                    <ToggleButton Style="{StaticResource MaterialDesignIconButton}"
+                                  IsChecked="{Binding MapViewModel.ActiveTool, Mode=OneWay, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static core:MapTool.ZoomWindow}}"
+                                  Command="{Binding MapViewModel.SetToolZoomWindowCommand}"
+                                  ToolTip="선택 영역 확대"
+                                  Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_ToolbarZoomWindow}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </ToggleButton>
+                    
+                    <!-- Select Tool -->
+                    <ToggleButton Style="{StaticResource MaterialDesignIconButton}"
+                                  IsChecked="{Binding MapViewModel.ActiveTool, Mode=OneWay, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static core:MapTool.Select}}"
+                                  Command="{Binding MapViewModel.SetToolSelectCommand}"
+                                  ToolTip="피처 선택"
+                                  Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_Ribbon_Select}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </ToggleButton>
+
+                    <!-- Pan Tool -->
+                    <ToggleButton Style="{StaticResource MaterialDesignIconButton}"
+                                  IsChecked="{Binding MapViewModel.ActiveTool, Mode=OneWay, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static core:MapTool.Pan}}"
+                                  Command="{Binding MapViewModel.SetToolPanCommand}"
+                                  ToolTip="이동"
+                                  Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_Ribbon_Move}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </ToggleButton>
+                    
+                    <!-- Full Extent -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding MapViewModel.ZoomToExtentCommand}"
+                            ToolTip="전체 범위 보기"
+                            Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_ToolbarFullExtent}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </Button>
+                    
+                    <Rectangle Width="1" Height="28" Fill="{StaticResource BorderBrush}" Margin="8,0"/>
+                    
+                    <!-- Toggle Layer Panel -->
+                    <ToggleButton Style="{StaticResource MaterialDesignIconButton}"
+                                  IsChecked="{Binding IsLayerPanelVisible}"
+                                  ToolTip="레이어 패널"
+                                  Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_ToolbarLayers}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </ToggleButton>
+                    
+                    <!-- Toggle Attribute Panel -->
+                    <ToggleButton Style="{StaticResource MaterialDesignIconButton}"
+                                  IsChecked="{Binding IsAttributePanelVisible}"
+                                  ToolTip="속성 테이블"
+                                  Width="40" Height="40">
+                        <Viewbox Width="24" Height="24">
+                            <ContentControl Content="{StaticResource Icon_ToolbarTable}" 
+                                          Foreground="{StaticResource IconPrimaryBrush}" />
+                        </Viewbox>
+                    </ToggleButton>
+                </StackPanel>
+                
+                <!-- Right Side - Settings -->
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="8,0,16,0" VerticalAlignment="Center">
+                    <!-- Color Palette Menu -->
+                    <materialDesign:PopupBox PlacementMode="BottomAndAlignRightEdges"
+                                             ToolTip="색상 팔레트"
+                                             Margin="0,0,8,0">
+                        <materialDesign:PopupBox.ToggleContent>
+                            <materialDesign:PackIcon Kind="Palette" Width="24" Height="24" Foreground="{StaticResource IconPrimaryBrush}"/>
+                        </materialDesign:PopupBox.ToggleContent>
+                        <StackPanel Width="160">
+                            <TextBlock Text="색상 팔레트" FontWeight="SemiBold" Margin="12,8,12,4"/>
+                            <Separator/>
+                            <Button Content="🎨 선명한 색상" Click="SetPaletteVivid_Click" Style="{StaticResource MaterialDesignFlatButton}" HorizontalContentAlignment="Left"/>
+                            <Button Content="🌸 파스텔" Click="SetPalettePastel_Click" Style="{StaticResource MaterialDesignFlatButton}" HorizontalContentAlignment="Left"/>
+                            <Button Content="🌲 대지/자연" Click="SetPaletteEarth_Click" Style="{StaticResource MaterialDesignFlatButton}" HorizontalContentAlignment="Left"/>
+                            <Button Content="🌊 바다/파랑" Click="SetPaletteOcean_Click" Style="{StaticResource MaterialDesignFlatButton}" HorizontalContentAlignment="Left"/>
+                            <Button Content="🔥 따뜻한 색상" Click="SetPaletteWarm_Click" Style="{StaticResource MaterialDesignFlatButton}" HorizontalContentAlignment="Left"/>
+                            <Button Content="❄️ 차가운 색상" Click="SetPaletteCool_Click" Style="{StaticResource MaterialDesignFlatButton}" HorizontalContentAlignment="Left"/>
+                            <Button Content="🌈 무지개" Click="SetPaletteRainbow_Click" Style="{StaticResource MaterialDesignFlatButton}" HorizontalContentAlignment="Left"/>
+                            <Button Content="⬛ 회색조" Click="SetPaletteGrayscale_Click" Style="{StaticResource MaterialDesignFlatButton}" HorizontalContentAlignment="Left"/>
+                        </StackPanel>
+                    </materialDesign:PopupBox>
+                    
+                    <Rectangle Width="1" Height="28" Fill="{StaticResource BorderBrush}" Margin="0,0,8,0"/>
+                    
+                    <!-- Base Map Toggle -->
+                    <ToggleButton Style="{StaticResource MaterialDesignIconButton}"
+                                  IsChecked="{Binding MapViewModel.IsBaseMapEnabled}"
+                                  ToolTip="배경지도 표시/숨기기"
+                                  Width="36" Height="36"
+                                  Margin="0,0,8,0">
+                        <materialDesign:PackIcon Kind="MapOutline" Width="20" Height="20" Foreground="{StaticResource IconPrimaryBrush}"/>
+                    </ToggleButton>
+                    
+                    <TextBlock Text="배경지도:" VerticalAlignment="Center" Margin="0,0,8,0"
+                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <ComboBox Width="140"
+                              ItemsSource="{Binding MapViewModel.AvailableBaseMaps}"
+                              SelectedItem="{Binding MapViewModel.SelectedBaseMap}"
+                              DisplayMemberPath="Name"
+                              materialDesign:HintAssist.Hint="배경지도"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+        
+        <!-- ===== CONTENT AREA ===== -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <!-- Layer Panel -->
+                <ColumnDefinition Width="280" MinWidth="200" MaxWidth="400"
+                                  x:Name="LayerPanelColumn"/>
+                <!-- Splitter -->
+                <ColumnDefinition Width="Auto"/>
+                <!-- Map View -->
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            
+            <!-- Layer Panel -->
+            <Border Grid.Column="0" 
+                    Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="0,0,1,0"
+                    Visibility="{Binding IsLayerPanelVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="40"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    
+                    <!-- Panel Header -->
+                    <Border Grid.Row="0" Background="{StaticResource BackgroundBrush}"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                        <Grid Margin="12,0">
+                            <TextBlock Text="Contents" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                       VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <!-- 레이어 위로 이동 -->
+                                <Button Style="{StaticResource MaterialDesignIconButton}"
+                                        Command="{Binding LayerPanelViewModel.MoveLayerUpCommand}"
+                                        ToolTip="레이어 위로 이동"
+                                        Width="28" Height="28">
+                                    <Viewbox Width="16" Height="16">
+                                        <ContentControl Content="{StaticResource Icon_Move}" 
+                                                      Foreground="{StaticResource IconPrimaryBrush}" />
+                                    </Viewbox>
+                                </Button>
+                                <!-- 레이어 아래로 이동 -->
+                                <Button Style="{StaticResource MaterialDesignIconButton}"
+                                        Command="{Binding LayerPanelViewModel.MoveLayerDownCommand}"
+                                        ToolTip="레이어 아래로 이동"
+                                        Width="28" Height="28">
+                                    <materialDesign:PackIcon Kind="ChevronDown" Width="16" Height="16" Foreground="{StaticResource IconPrimaryBrush}"/>
+                                </Button>
+                                
+                                <Rectangle Width="1" Height="20" Fill="{StaticResource BorderBrush}" Margin="4,0"/>
+                                
+                                <!-- 선택 삭제 버튼 -->
+                                <Button Style="{StaticResource MaterialDesignIconButton}"
+                                        Command="{Binding LayerPanelViewModel.RemoveSelectedLayersCommand}"
+                                        ToolTip="선택된 레이어 삭제 (Delete)"
+                                        Width="28" Height="28">
+                                    <materialDesign:PackIcon Kind="Delete" Width="16" Height="16"/>
+                                </Button>
+                                <!-- 레이어 추가 버튼 -->
+                                <Button Style="{StaticResource MaterialDesignIconButton}"
+                                        Command="{Binding LayerPanelViewModel.AddLayerCommand}"
+                                        ToolTip="레이어 추가"
+                                        Width="28" Height="28">
+                                    <materialDesign:PackIcon Kind="Plus" Width="18" Height="18" Foreground="{StaticResource IconPrimaryBrush}"/>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- Layer List (다중 선택 + 드래그 앤 드롭 지원) -->
+                    <ListBox Grid.Row="1" 
+                             x:Name="LayerListBox"
+                             ItemsSource="{Binding LayerPanelViewModel.Layers}"
+                             SelectedItem="{Binding LayerPanelViewModel.SelectedLayer}"
+                             SelectionMode="Extended"
+                             SelectionChanged="LayerListBox_SelectionChanged"
+                             KeyDown="LayerListBox_KeyDown"
+                             AllowDrop="True"
+                             PreviewMouseLeftButtonDown="LayerListBox_PreviewMouseLeftButtonDown"
+                             PreviewMouseMove="LayerListBox_PreviewMouseMove"
+                             Drop="LayerListBox_Drop"
+                             DragOver="LayerListBox_DragOver"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <!-- ListBox 전체에 적용되는 Context Menu -->
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="속성 열기" Click="OpenLayerProperties_Click">
+                                    <MenuItem.Icon>
+                                        <materialDesign:PackIcon Kind="TableCog" Width="16" Height="16" Foreground="{StaticResource IconPrimaryBrush}"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="범위로 이동" Click="ZoomToSelected_Click">
+                                    <MenuItem.Icon>
+                                        <materialDesign:PackIcon Kind="Magnify" Width="16" Height="16" Foreground="{StaticResource IconPrimaryBrush}"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="투명도 설정">
+                                    <MenuItem.Icon>
+                                        <materialDesign:PackIcon Kind="Opacity" Width="16" Height="16" Foreground="{StaticResource IconPrimaryBrush}"/>
+                                    </MenuItem.Icon>
+                                    <MenuItem Header="100%" Click="SetOpacity100_Click"/>
+                                    <MenuItem Header="75%" Click="SetOpacity75_Click"/>
+                                    <MenuItem Header="50%" Click="SetOpacity50_Click"/>
+                                    <MenuItem Header="25%" Click="SetOpacity25_Click"/>
+                                    <MenuItem Header="10%" Click="SetOpacity10_Click"/>
+                                </MenuItem>
+                                <MenuItem Header="표시/숨김 토글" Click="ToggleVisibility_Click">
+                                    <MenuItem.Icon>
+                                        <materialDesign:PackIcon Kind="EyeOff" Width="16" Height="16" Foreground="{StaticResource IconPrimaryBrush}"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="선택 항목 삭제" Click="DeleteSelected_Click">
+                                    <MenuItem.Icon>
+                                        <materialDesign:PackIcon Kind="Delete" Width="16" Height="16" Foreground="#F44336"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource MaterialDesignListBoxItem}">
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="Margin" Value="0"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+                                        <Setter Property="BorderThickness" Value="2,0,0,0"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="4,4,4,4" Background="Transparent">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="36"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        
+                                        <!-- Main Row -->
+                                        <Grid Grid.Row="0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            
+                                            <!-- Visibility Checkbox -->
+                                            <CheckBox Grid.Column="0" 
+                                                      IsChecked="{Binding IsVisible}"
+                                                      VerticalAlignment="Center"
+                                                      Margin="4,0"/>
+                                            
+                                            <!-- Geometry Type Icon (Dynamic) -->
+                                            <materialDesign:PackIcon Grid.Column="1" 
+                                                                     Kind="{Binding GeometryIcon}"
+                                                                     Width="20" Height="20"
+                                                                     VerticalAlignment="Center"
+                                                                     Foreground="{Binding GeometryIconBrush}"
+                                                                     Margin="4,0"
+                                                                     ToolTip="{Binding FeatureCount, StringFormat='피처 수: {0}'}"/>
+                                            
+                                            <!-- Layer Name (빈 레이어는 기울임꼴) -->
+                                            <TextBlock Grid.Column="2" 
+                                                       Text="{Binding Name}"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding FilePath}"
+                                                       Margin="8,0">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsEmpty}" Value="True">
+                                                                <Setter Property="FontStyle" Value="Italic"/>
+                                                                <Setter Property="Foreground" Value="Gray"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            
+                                            <!-- Menu Button with Context Menu -->
+                                            <Button Grid.Column="3"
+                                                    Style="{StaticResource MaterialDesignIconButton}"
+                                                    Width="28" Height="28"
+                                                    Click="LayerMenuButton_Click">
+                                                <materialDesign:PackIcon Kind="DotsVertical" Width="16" Height="16" Foreground="{StaticResource IconPrimaryBrush}"/>
+                                                <Button.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Header="범위로 이동" Command="{Binding ZoomToLayerCommand}">
+                                                            <MenuItem.Icon>
+                                                                <materialDesign:PackIcon Kind="Magnify" Width="16" Height="16" Foreground="{StaticResource IconPrimaryBrush}"/>
+                                                            </MenuItem.Icon>
+                                                        </MenuItem>
+                                                        <!-- 투명도 서브메뉴 (선택된 모든 레이어에 적용) -->
+                                                        <MenuItem Header="투명도 설정">
+                                                            <MenuItem.Icon>
+                                                                <materialDesign:PackIcon Kind="Opacity" Width="16" Height="16" Foreground="{StaticResource IconPrimaryBrush}"/>
+                                                            </MenuItem.Icon>
+                                                            <MenuItem Header="100%" Click="SetOpacity100_Click"/>
+                                                            <MenuItem Header="75%" Click="SetOpacity75_Click"/>
+                                                            <MenuItem Header="50%" Click="SetOpacity50_Click"/>
+                                                            <MenuItem Header="25%" Click="SetOpacity25_Click"/>
+                                                            <MenuItem Header="10%" Click="SetOpacity10_Click"/>
+                                                        </MenuItem>
+                                                        <MenuItem Header="표시/숨김 토글" Click="ToggleVisibility_Click">
+                                                            <MenuItem.Icon>
+                                                                <materialDesign:PackIcon Kind="EyeOff" Width="16" Height="16" Foreground="{StaticResource IconPrimaryBrush}"/>
+                                                            </MenuItem.Icon>
+                                                        </MenuItem>
+                                                        <Separator/>
+                                                        <MenuItem Header="삭제" Command="{Binding RemoveCommand}">
+                                                            <MenuItem.Icon>
+                                                                <materialDesign:PackIcon Kind="Delete" Width="16" Height="16" Foreground="#F44336"/>
+                                                            </MenuItem.Icon>
+                                                        </MenuItem>
+                                                    </ContextMenu>
+                                                </Button.ContextMenu>
+                                            </Button>
+                                        </Grid>
+                                        
+                                        <!-- Expanded Row (Opacity Slider) -->
+                                        <Grid Grid.Row="1" 
+                                              Visibility="{Binding IsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                              Margin="28,4,4,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="40"/>
+                                            </Grid.ColumnDefinitions>
+                                            
+                                            <Slider Grid.Column="0" 
+                                                    Minimum="0" Maximum="1" 
+                                                    Value="{Binding Opacity, Mode=TwoWay}"
+                                                    TickFrequency="0.1"
+                                                    IsSnapToTickEnabled="False"
+                                                    VerticalAlignment="Center"/>
+                                            
+                                            <TextBlock Grid.Column="1" 
+                                                       Text="{Binding OpacityPercent, StringFormat={}{0}%}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center"
+                                                       HorizontalAlignment="Right"/>
+                                        </Grid>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    
+                    <!-- Empty State -->
+                    <StackPanel Grid.Row="1" 
+                                VerticalAlignment="Center" HorizontalAlignment="Center"
+                                Visibility="{Binding LayerPanelViewModel.Layers.Count, Converter={StaticResource InverseIntToVisibilityConverter}, FallbackValue=Visible}">
+                        <materialDesign:PackIcon Kind="LayersOff" Width="48" Height="48"
+                                                 Foreground="{StaticResource TextSecondaryBrush}"
+                                                 HorizontalAlignment="Center"/>
+                        <TextBlock Text="레이어 없음" Margin="0,8,0,0"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Text="파일을 드래그하거나&#x0a;+ 버튼을 클릭하세요"
+                                   TextAlignment="Center"
+                                   FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            
+            <!-- Grid Splitter -->
+            <GridSplitter Grid.Column="1" Width="5" 
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Stretch"
+                          Background="Transparent"
+                          Visibility="{Binding IsLayerPanelVisible, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            
+            <!-- Map View -->
+            <Grid Grid.Column="2" AllowDrop="True">
+                <!-- SharpMap Control -->
+                <controls:MapControl DataContext="{Binding MapViewModel}"/>
+                
+                <!-- Drop Overlay (will be shown when dragging) -->
+                <Border x:Name="DropOverlay"
+                        Background="#402196F3"
+                        BorderBrush="{StaticResource PrimaryBrush}"
+                        BorderThickness="3"
+                        CornerRadius="8"
+                        Margin="20"
+                        Visibility="Collapsed"
+                        IsHitTestVisible="False">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <materialDesign:PackIcon Kind="FilePlus" Width="64" Height="64"
+                                                 Foreground="{StaticResource PrimaryBrush}"
+                                                 HorizontalAlignment="Center"/>
+                        <TextBlock Text="여기에 파일을 놓으세요"
+                                   FontSize="18" FontWeight="Medium"
+                                   Foreground="{StaticResource PrimaryBrush}"
+                                   Margin="0,16,0,0"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+        
+        <!-- ===== ATTRIBUTE PANEL ===== -->
+        <Grid Grid.Row="2"
+              Visibility="{Binding IsAttributePanelVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="250" MinHeight="100" MaxHeight="500"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Splitter -->
+            <GridSplitter Grid.Row="0" 
+                          Height="5"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Top"
+                          Background="Transparent"
+                          ShowsPreview="True"/>
+            
+            <!-- Attribute Panel UserControl -->
+            <Border Grid.Row="1"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="0,1,0,0">
+                <controls:AttributePanel x:Name="AttributePanelControl"
+                                         DataContext="{Binding AttributePanelViewModel}"/>
+            </Border>
+        </Grid>
+        
+        <!-- ===== STATUS BAR ===== -->
+        <Border Grid.Row="3" 
+                Background="{StaticResource BackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid Margin="12,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <!-- Coordinates -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="X:" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11"/>
+                    <TextBlock Text="{Binding MapViewModel.MouseX, StringFormat=F4}" 
+                               FontFamily="Consolas" FontSize="11" Margin="4,0,12,0"
+                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <TextBlock Text="Y:" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11"/>
+                    <TextBlock Text="{Binding MapViewModel.MouseY, StringFormat=F4}" 
+                               FontFamily="Consolas" FontSize="11" Margin="4,0,0,0"
+                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                </StackPanel>
+                
+                <Rectangle Grid.Column="1" Width="1" Height="14" Fill="{StaticResource BorderBrush}" Margin="16,0"/>
+                
+                <!-- Scale -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="축척:" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11"/>
+                    <TextBlock Text="{Binding MapViewModel.ScaleText}" FontFamily="Consolas" FontSize="11" Margin="4,0,0,0"
+                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                </StackPanel>
+                
+                <!-- Status Message -->
+                <TextBlock Grid.Column="3" 
+                           Text="{Binding StatusMessage}" 
+                           FontSize="11"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"/>
+                
+                <!-- CRS -->
+                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding MapViewModel.CoordinateSystem}" 
+                               FontFamily="Consolas" FontSize="11"
+                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

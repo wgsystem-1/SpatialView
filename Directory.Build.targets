@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    Imported AFTER each project and its .props imports, so it can enforce settings.
+    We keep SpatialView projects strict, but reduce warning-noise for the legacy SharpMap_Fork
+    while the GeoAPI→NTS/ProjNet modernization is in progress.
+  -->
+
+  <PropertyGroup Condition="$([System.String]::Copy('$(MSBuildProjectDirectory)').Contains('SharpMap_Fork'))">
+    <Nullable>disable</Nullable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!-- Silence legacy warnings (mostly nullability + XML-doc warnings from old code comments). -->
+    <NoWarn>$(NoWarn);NU1900;1591;1572;1573;1574;1580;0108;0168;0618;0672;8618;8622;8625;8600;8601;8602;8603;8604;8620;8765;0642;SYSLIB0001;SYSLIB0003;SYSLIB0012;SYSLIB0014;CA2200</NoWarn>
+  </PropertyGroup>
+</Project>
+
+

@@ -1,0 +1,27 @@
+<Project>
+  <!--
+    NuGet's security auditing can emit NU1900 when the audit/vulnerability feed is unreachable
+    (common in offline / firewall / restricted environments). We suppress the warning to keep
+    builds clean; security scanning should be handled by a dedicated CI job when connectivity exists.
+  -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);NU1900</NoWarn>
+    <RestoreNoWarn>$(RestoreNoWarn);NU1900</RestoreNoWarn>
+  </PropertyGroup>
+
+  <!-- Disable NuGet audit during local builds to avoid NU1900 in restricted/offline environments.
+       Re-enable in CI/security pipelines as appropriate. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+
+  <!-- SharpMap_Fork is legacy code; keep the build noise-free while modernizing.
+       We still keep Nullable enabled in SpatialView projects. -->
+  <PropertyGroup Condition="$([System.String]::Copy('$(MSBuildProjectDirectory)').Contains('SharpMap_Fork'))">
+    <Nullable>disable</Nullable>
+    <!-- Avoid a flood of XML-doc warnings during the port; turn back on for packaging if needed -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+</Project>
+
+

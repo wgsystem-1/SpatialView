@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(rm:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(dotnet restore)",
+      "Bash(python:*)",
+      "Bash(awk:*)",
+      "Bash(wc:*)",
+      "Bash(tail:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(dotnet add package:*)",
+      "Bash(del IVectorLayer.cs ITileLayer.cs)",
+      "Bash(dotnet run)",
+      "Bash(dotnet clean:*)",
+      "Bash(mv:*)",
+      "Bash(dir)",
+      "Bash(del:*)",
+      "Bash(dotnet remove:*)"
+    ],
+    "deny": []
+  }
+}

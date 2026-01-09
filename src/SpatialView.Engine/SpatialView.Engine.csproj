@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0-windows10.0.19041;net10.0-windows</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SpatialView.Engine</AssemblyName>
+    <RootNamespace>SpatialView.Engine</RootNamespace>
+    <LangVersion>12.0</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- 불필요 경고 억제 (NU1510: non-trimmable 패키지) -->
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 데이터베이스 지원 -->
+    <PackageReference Include="Microsoft.SqlServer.Types" Version="160.1000.6" />
+    <PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
+    <PackageReference Include="Npgsql" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.1" />
+
+    <!-- GDAL/OGR (네이티브 포함) -->
+    <PackageReference Include="MaxRev.Gdal.Core" Version="3.12.0.427" />
+    <PackageReference Include="MaxRev.Gdal.WindowsRuntime.Minimal" Version="3.12.0.427" />
+
+    <!-- JSON 처리 -->
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+
+    <!-- 메모리 캐싱 -->
+    <PackageReference Include="System.Runtime.Caching" Version="8.0.0" />
+    <PackageReference Include="Microsoft.VisualBasic" Version="10.3.0" />
+    <!-- 의존성 버전 충돌 방지 -->
+    <PackageReference Include="System.Collections.Immutable" Version="10.0.0" />
+    <PackageReference Include="System.Reflection.Metadata" Version="10.0.0" />
+
+    <!-- WPF/WindowsDesktop 의존 (렌더러/Styling용) -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App"
+                        Condition="'$(TargetFramework)' == 'net10.0-windows' or '$(TargetFramework)' == 'net8.0-windows10.0.19041'" />
+  </ItemGroup>
+
+</Project>
+

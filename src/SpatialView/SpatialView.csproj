@@ -1,0 +1,75 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon></ApplicationIcon>
+    <AssemblyName>SpatialView</AssemblyName>
+    <RootNamespace>SpatialView</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SpatialView.Core\SpatialView.Core.csproj" />
+    <ProjectReference Include="..\SpatialView.Infrastructure\SpatialView.Infrastructure.csproj" />
+    <ProjectReference Include="..\SpatialView.Engine\SpatialView.Engine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MVVM 및 DI -->
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.1" />
+    
+    <!-- UI -->
+    <PackageReference Include="MaterialDesignThemes" Version="5.3.0" />
+    <PackageReference Include="SharpVectors" Version="1.8.5" />
+    
+    <!-- GDAL/OGR (네이티브 바이너리 포함) -->
+    <PackageReference Include="MaxRev.Gdal.Core" Version="3.12.0.427" />
+    <PackageReference Include="MaxRev.Gdal.WindowsRuntime.Minimal" Version="3.12.0.427" />
+    
+    <!-- Spatial libraries 제거 - 자체 엔진 사용 -->
+  </ItemGroup>
+
+  <!-- 아이콘 SVG 리소스 -->
+  <ItemGroup>
+    <Resource Include="Resources\Icons\Selection\*.svg" />
+    <Resource Include="Resources\Icons\Edit\*.svg" />
+    <Resource Include="Resources\Icons\Annotation\*.svg" />
+    <Resource Include="Resources\Icons\Toolbar\*.svg" />
+    <Resource Include="Resources\Icons\Ribbon\*.svg" />
+  </ItemGroup>
+
+  <!-- GDAL 데이터/PROJ 복사 -->
+  <PropertyGroup>
+    <GdalCoreVersion>3.12.0.427</GdalCoreVersion>
+    <GdalDataSource>$(NuGetPackageRoot)maxrev.gdal.core\$(GdalCoreVersion)\runtimes\any\native\gdal-data</GdalDataSource>
+    <ProjDbSource>$(NuGetPackageRoot)maxrev.gdal.windowsruntime.minimal\$(GdalCoreVersion)\runtimes\win-x64\native\maxrev.gdal.core.libshared\proj.db</ProjDbSource>
+    <!-- OutDir already includes win-x64 because RuntimeIdentifier is set -->
+    <GdalDataDest>$(OutDir)gdal-data</GdalDataDest>
+    <ProjDestDir>$(OutDir)projlib</ProjDestDir>
+  </PropertyGroup>
+
+  <Target Name="CopyGdalData" AfterTargets="Build">
+    <Message Text="CopyGdalData: GdalDataSource=$(GdalDataSource)" Importance="High" />
+    <Message Text="CopyGdalData: ProjDbSource=$(ProjDbSource)" Importance="High" />
+
+    <MakeDir Directories="$(GdalDataDest)" Condition="Exists('$(GdalDataSource)')" />
+    <Exec Command="robocopy &quot;$(GdalDataSource)&quot; &quot;$(GdalDataDest)&quot; /E /NFL /NDL /NJH /NJS /NC /NS /NP"
+          Condition="Exists('$(GdalDataSource)')"
+          IgnoreExitCode="true" />
+
+    <MakeDir Directories="$(ProjDestDir)" Condition="Exists('$(ProjDbSource)')" />
+    <Copy SourceFiles="$(ProjDbSource)"
+          DestinationFiles="$(ProjDestDir)\proj.db"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(ProjDbSource)')" />
+  </Target>
+
+</Project>

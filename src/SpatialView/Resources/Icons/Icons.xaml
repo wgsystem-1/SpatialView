@@ -1,0 +1,139 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:svgc="http://sharpvectors.codeplex.com/svgc/">
+    <!-- SVG 아이콘 리소스 매핑 (SharpVectors SvgDrawing 사용) -->
+    <!-- Selection -->
+    <svgc:SvgViewbox x:Key="Icon_Select"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Selection/Selection_Select.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_SelectByAttributes"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Selection/Selection_SelectByAttributes.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_SelectByLocation"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Selection/Selection_SelectByLocation.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_ClearSelection"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Selection/Selection_ClearSelection.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_ZoomTo"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Selection/Selection_ZoomTo.svg"
+ />
+
+    <!-- Editing -->
+    <svgc:SvgViewbox x:Key="Icon_CreateFeature"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Edit/Edit_CreateFeature.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_ModifyFeature"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Edit/Edit_ModifyFeature.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_DeleteFeature"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Edit/Edit_DeleteFeature.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Move"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Edit/Edit_Move.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_EditVertices"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Edit/Edit_EditVertices.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Reshape"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Edit/Edit_Reshape.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Merge"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Edit/Edit_Merge.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Split"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Edit/Edit_Split.svg"
+ />
+
+    <!-- Annotation -->
+    <svgc:SvgViewbox x:Key="Icon_Annotation"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Annotation/Annotation_Annotation.svg"
+ />
+
+    <!-- Toolbar -->
+    <svgc:SvgViewbox x:Key="Icon_New"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_New.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Open"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_Open.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Save"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_Save.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Add"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_Add.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_OpenGdb"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_OpenGdb.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_ToolbarZoomIn"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_ZoomIn.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_ToolbarZoomOut"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_ZoomOut.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_ToolbarZoomWindow"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_ZoomWindow.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_ToolbarSelect"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_Select.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_ToolbarPan"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_Pan.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_ToolbarPlay"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_Play.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_ToolbarLayers"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_Layers.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_ToolbarTable"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_Table.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_ToolbarFullExtent"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Toolbar/Toolbar_FullExtent.svg"
+ />
+
+    <!-- Ribbon -->
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_Create"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_Create.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_Modify"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_Modify.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_Delete"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_Delete.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_Select"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_Select.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_SelectByAttributes"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_SelectByAttributes.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_SelectByLocation"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_SelectByLocation.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_ClearSelection"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_ClearSelection.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_Move"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_Move.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_Annotation"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_Annotation.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_EditVertices"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_EditVertices.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_Reshape"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_Reshape.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_Merge"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_Merge.svg"
+ />
+    <svgc:SvgViewbox x:Key="Icon_Ribbon_Split"
+                     Source="pack://application:,,,/SpatialView;component/Resources/Icons/Ribbon/Ribbon_Split.svg"
+ />
+
+</ResourceDictionary>
+
