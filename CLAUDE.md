@@ -4,6 +4,31 @@
 
 SpatialView는 **WPF 기반**의 GIS(Geographic Information System) 뷰어 애플리케이션입니다.
 
+## 📝 개발일지 (중요!)
+
+> **모든 개발 작업은 반드시 `docs/개발일지.md`에 기록해야 합니다.**
+
+### 기록 규칙
+1. **날짜/시간 필수**: `YYYY-MM-DD HH:MM` 형식으로 작업 시간 기록
+2. **작업 내용**: 구현한 기능, 수정한 버그, 변경 사항 상세 기술
+3. **코드 변경**: 주요 코드 변경 사항은 코드 블록으로 기록
+4. **향후 계획**: 예정된 작업, 알려진 버그 등 업데이트
+
+### 기록 예시
+```markdown
+## 2026-01-10
+
+### 14:30 - 스타일링 시스템 구현 완료
+
+#### 구현 내용
+- LayerRenderStyle 클래스 추가
+- VectorRenderer 스타일 적용 메서드 추가
+
+#### 수정 파일
+- `src/SpatialView.Engine/Rendering/RenderContext.cs`
+- `src/SpatialView.Engine/Rendering/VectorRenderer.cs`
+```
+
 ## 기술 스택
 
 - **프레임워크**: .NET 8.0, WPF
@@ -73,4 +98,10 @@ dotnet build SpatialView.sln
 
 ## 참고 문서
 
-- `docs/` 폴더 내 문서 참조
+- `docs/개발일지.md` - **개발 진행 상황, 버그 수정, 기능 추가 기록 (필수 참조)**
+- `docs/` 폴더 내 기타 문서 참조
+
+## GitHub 저장소
+
+- **URL**: https://github.com/wgsystem-1/SpatialView
+- **브랜치**: main
