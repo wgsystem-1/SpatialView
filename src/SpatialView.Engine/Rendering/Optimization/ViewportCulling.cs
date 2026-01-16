@@ -10,6 +10,19 @@ namespace SpatialView.Engine.Rendering.Optimization;
 /// </summary>
 public class ViewportCulling
 {
+    /// <summary>
+    /// 지오메트리가 뷰포트 내에 보이는지 확인 (정적 메서드)
+    /// </summary>
+    public static bool IsGeometryVisible(IGeometry geometry, Envelope viewport)
+    {
+        if (geometry == null || viewport == null) return false;
+
+        var envelope = geometry.Envelope;
+        if (envelope == null || envelope.IsNull) return true; // 범위를 알 수 없으면 표시
+
+        return viewport.Intersects(envelope);
+    }
+
     private readonly Dictionary<int, CullingStatistics> _statistics;
     private readonly object _lockObject = new();
 

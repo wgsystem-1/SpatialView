@@ -22,7 +22,8 @@ public class ColorPaletteService
         Warm,       // 따뜻한 색상
         Cool,       // 차가운 색상
         Rainbow,    // 무지개
-        Grayscale   // 회색조
+        Grayscale,  // 회색조
+        Negative    // 네거티브 (반전)
     }
     
     /// <summary>
@@ -162,6 +163,23 @@ public class ColorPaletteService
     };
     
     /// <summary>
+    /// 네거티브 (반전) 팔레트 - 어두운 배경에서 밝은 색상
+    /// </summary>
+    private static readonly Color[] NegativeColors = new[]
+    {
+        Color.FromArgb(255, 0, 255, 255),      // Cyan (Red 반전)
+        Color.FromArgb(255, 255, 0, 255),      // Magenta (Green 반전)
+        Color.FromArgb(255, 255, 255, 0),      // Yellow (Blue 반전)
+        Color.FromArgb(255, 0, 255, 0),        // Green
+        Color.FromArgb(255, 255, 128, 255),    // Light Magenta
+        Color.FromArgb(255, 128, 255, 255),    // Light Cyan
+        Color.FromArgb(255, 255, 255, 128),    // Light Yellow
+        Color.FromArgb(255, 255, 200, 100),    // Light Orange
+        Color.FromArgb(255, 200, 255, 200),    // Light Green
+        Color.FromArgb(255, 200, 200, 255),    // Light Blue
+    };
+    
+    /// <summary>
     /// 현재 팔레트 설정
     /// </summary>
     public ColorPalette CurrentPalette
@@ -218,6 +236,7 @@ public class ColorPaletteService
             ColorPalette.Cool => CoolColors,
             ColorPalette.Rainbow => RainbowColors,
             ColorPalette.Grayscale => GrayscaleColors,
+            ColorPalette.Negative => NegativeColors,
             _ => VividColors
         };
     }
@@ -245,6 +264,7 @@ public class ColorPaletteService
             ColorPalette.Cool => "차가운 색상",
             ColorPalette.Rainbow => "무지개",
             ColorPalette.Grayscale => "회색조",
+            ColorPalette.Negative => "네거티브",
             _ => palette.ToString()
         };
     }

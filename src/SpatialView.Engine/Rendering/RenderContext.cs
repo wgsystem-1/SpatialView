@@ -60,6 +60,16 @@ public class RenderContext
     public LayerRenderStyle? LayerStyle { get; set; }
     
     /// <summary>
+    /// 라벨 스타일
+    /// </summary>
+    public Styling.ILabelStyle? LabelStyle { get; set; }
+    
+    /// <summary>
+    /// 라벨 렌더링 활성화 여부
+    /// </summary>
+    public bool RenderLabels { get; set; } = true;
+    
+    /// <summary>
     /// 현재 뷰포트와 지오메트리가 교차하는지 확인
     /// </summary>
     public bool IsVisible(Geometry.IGeometry geometry)
@@ -68,12 +78,66 @@ public class RenderContext
         return ViewExtent.Intersects(geometry.Envelope);
     }
     
+    // 성능 최적화: 좌표 변환 파라미터 캐싱
+    private double _scaleX;
+    private double _scaleY;
+    private double _offsetX;
+    private double _offsetY;
+    private bool _transformInitialized = false;
+    
     /// <summary>
-    /// 좌표 배열을 화면 점 배열로 변환
+    /// 좌표 변환 파라미터 초기화 (성능 최적화)
+    /// </summary>
+    public void InitializeTransform()
+    {
+        if (ViewExtent == null || ScreenSize.Width <= 0 || ScreenSize.Height <= 0) return;
+        
+        _scaleX = ScreenSize.Width / ViewExtent.Width;
+        _scaleY = ScreenSize.Height / ViewExtent.Height;
+        _offsetX = ViewExtent.MinX;
+        _offsetY = ViewExtent.MaxY; // Y축 반전
+        _transformInitialized = true;
+    }
+    
+    /// <summary>
+    /// 빠른 좌표 변환 (델리게이트 호출 없음)
+    /// </summary>
+    public Point FastMapToScreen(double x, double y)
+    {
+        if (!_transformInitialized)
+        {
+            InitializeTransform();
+        }
+        
+        return new Point(
+            (x - _offsetX) * _scaleX,
+            (_offsetY - y) * _scaleY  // Y축 반전
+        );
+    }
+    
+    /// <summary>
+    /// 좌표 배열을 화면 점 배열로 변환 (최적화)
     /// </summary>
     public Point[] ConvertToScreenPoints(Geometry.ICoordinate[] coordinates)
     {
-        return coordinates.Select(MapToScreen).ToArray();
+        if (coordinates == null || coordinates.Length == 0) return Array.Empty<Point>();
+        
+        if (!_transformInitialized)
+        {
+            InitializeTransform();
+        }
+        
+        // 배열 직접 할당 (LINQ 없음)
+        var result = new Point[coordinates.Length];
+        for (int i = 0; i < coordinates.Length; i++)
+        {
+            var c = coordinates[i];
+            result[i] = new Point(
+                (c.X - _offsetX) * _scaleX,
+                (_offsetY - c.Y) * _scaleY
+            );
+        }
+        return result;
     }
     
     /// <summary>

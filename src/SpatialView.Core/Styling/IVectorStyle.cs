@@ -54,6 +54,41 @@ public interface IVectorStyle
     float[]? LineDashPattern { get; set; }
     
     /// <summary>
+    /// 채움 색상 (System.Drawing.Color)
+    /// </summary>
+    System.Drawing.Color? FillColor { get; set; }
+    
+    /// <summary>
+    /// 선 색상 (System.Drawing.Color)
+    /// </summary>
+    System.Drawing.Color? LineColor { get; set; }
+    
+    /// <summary>
+    /// 포인트 색상 (System.Drawing.Color)
+    /// </summary>
+    System.Drawing.Color? PointColor { get; set; }
+    
+    /// <summary>
+    /// 심볼 크기
+    /// </summary>
+    float SymbolSize { get; set; }
+    
+    /// <summary>
+    /// 심볼 타입
+    /// </summary>
+    SymbolType SymbolType { get; set; }
+    
+    /// <summary>
+    /// 선 스타일
+    /// </summary>
+    LineStyle LineStyle { get; set; }
+    
+    /// <summary>
+    /// 심볼로 렌더링 (폴리곤/라인을 중심점 심볼로 변환)
+    /// </summary>
+    bool RenderAsSymbol { get; set; }
+    
+    /// <summary>
     /// 스타일 복제
     /// </summary>
     IVectorStyle Clone();
@@ -119,4 +154,30 @@ public enum PointSymbolType
     /// 사용자 정의
     /// </summary>
     Custom
+}
+
+/// <summary>
+/// 심볼 타입 (레이어 스타일용)
+/// </summary>
+public enum SymbolType
+{
+    Circle,
+    Square,
+    Triangle,
+    Diamond,
+    Star,
+    Cross,
+    X
+}
+
+/// <summary>
+/// 선 스타일
+/// </summary>
+public enum LineStyle
+{
+    Solid,      // 실선
+    Dot,        // 점선
+    Dash,       // 파선
+    DashDot,    // 일점쇄선
+    DashDotDot  // 이점쇄선
 }

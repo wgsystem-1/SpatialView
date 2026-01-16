@@ -85,7 +85,26 @@
                     </Button>
                     
                     <Rectangle Width="1" Height="20" Fill="{StaticResource BorderBrush}" Margin="4,0"/>
-                    
+
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding SaveTableCommand}"
+                            ToolTip="변경사항 저장 (원본 파일에 저장)"
+                            Width="32" Height="32">
+                        <Grid>
+                            <materialDesign:PackIcon Kind="ContentSave" Width="18" Height="18"/>
+                            <!-- 변경사항 표시기 -->
+                            <Ellipse Width="8" Height="8" Fill="#FF5722"
+                                     HorizontalAlignment="Right" VerticalAlignment="Top"
+                                     Margin="0,-2,-2,0"
+                                     Visibility="{Binding HasUnsavedChanges, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        </Grid>
+                    </Button>
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding ExportTableCommand}"
+                            ToolTip="테이블 내보내기 (CSV/TSV)"
+                            Width="32" Height="32">
+                        <materialDesign:PackIcon Kind="FileExportOutline" Width="18" Height="18"/>
+                    </Button>
                     <Button Style="{StaticResource MaterialDesignIconButton}"
                             Command="{Binding RefreshCommand}"
                             ToolTip="새로고침"

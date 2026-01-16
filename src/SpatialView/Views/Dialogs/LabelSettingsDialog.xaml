@@ -1,0 +1,231 @@
+<Window x:Class="SpatialView.Views.Dialogs.LabelSettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        mc:Ignorable="d"
+        Title="라벨 설정" 
+        Height="520" Width="400"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{StaticResource BackgroundBrush}">
+    
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="라벨 설정" FontSize="18" FontWeight="SemiBold"
+                       Foreground="{StaticResource TextPrimaryBrush}"/>
+            <TextBlock Text="레이어의 라벨 표시 설정을 구성합니다."
+                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                       Margin="0,4,0,0"/>
+        </StackPanel>
+        
+        <!-- Settings -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- 라벨 표시 여부 -->
+                <CheckBox x:Name="ShowLabelsCheckBox"
+                          Content="라벨 표시"
+                          IsChecked="{Binding ShowLabels, Mode=TwoWay}"
+                          Margin="0,0,0,16"/>
+                
+                <!-- 라벨 필드 선택 -->
+                <TextBlock Text="라벨 필드" FontWeight="Medium" Margin="0,0,0,8"/>
+                <ComboBox x:Name="LabelFieldComboBox"
+                          ItemsSource="{Binding AvailableFields}"
+                          SelectedItem="{Binding LabelField, Mode=TwoWay}"
+                          materialDesign:HintAssist.Hint="속성 필드 선택"
+                          Margin="0,0,0,16"/>
+                
+                <!-- 폰트 설정 -->
+                <TextBlock Text="폰트 설정" FontWeight="Medium" Margin="0,0,0,8"/>
+                
+                <!-- 폰트 패밀리 -->
+                <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <TextBlock Grid.Column="0" Text="폰트" VerticalAlignment="Center"/>
+                    <ComboBox Grid.Column="1" 
+                              x:Name="FontFamilyComboBox"
+                              SelectedItem="{Binding LabelFontFamily, Mode=TwoWay}"
+                              materialDesign:HintAssist.Hint="폰트 선택">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Source}" FontFamily="{Binding}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </Grid>
+                
+                <!-- 폰트 크기 -->
+                <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <TextBlock Grid.Column="0" Text="크기" VerticalAlignment="Center"/>
+                    <ComboBox Grid.Column="1" 
+                              x:Name="FontSizeComboBox"
+                              IsEditable="True"
+                              Text="{Binding LabelFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                              materialDesign:HintAssist.Hint="크기">
+                        <ComboBoxItem Content="8"/>
+                        <ComboBoxItem Content="9"/>
+                        <ComboBoxItem Content="10"/>
+                        <ComboBoxItem Content="11"/>
+                        <ComboBoxItem Content="12"/>
+                        <ComboBoxItem Content="14"/>
+                        <ComboBoxItem Content="16"/>
+                        <ComboBoxItem Content="18"/>
+                        <ComboBoxItem Content="20"/>
+                        <ComboBoxItem Content="24"/>
+                        <ComboBoxItem Content="28"/>
+                        <ComboBoxItem Content="32"/>
+                    </ComboBox>
+                </Grid>
+                
+                <!-- 폰트 스타일 (굵게, 기울임) -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                    <CheckBox Content="굵게" 
+                              IsChecked="{Binding LabelFontBold, Mode=TwoWay}"
+                              Margin="0,0,16,0"/>
+                    <CheckBox Content="기울임" 
+                              IsChecked="{Binding LabelFontItalic, Mode=TwoWay}"/>
+                </StackPanel>
+                
+                <!-- 폰트 색상 -->
+                <Grid Margin="0,0,0,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <TextBlock Grid.Column="0" Text="폰트 색상" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" 
+                            x:Name="FontColorButton"
+                            Click="FontColorButton_Click"
+                            Width="60" Height="30"
+                            ToolTip="클릭하여 색상 선택">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource MaterialDesignFlatButton}">
+                                <Setter Property="Background">
+                                    <Setter.Value>
+                                        <SolidColorBrush Color="{Binding LabelColor}"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </Grid>
+                
+                <!-- 헤일로 설정 -->
+                <TextBlock Text="헤일로 (외곽선)" FontWeight="Medium" Margin="0,8,0,8"/>
+                <CheckBox x:Name="HaloEnabledCheckBox"
+                          Content="헤일로 사용"
+                          IsChecked="{Binding LabelHaloEnabled, Mode=TwoWay}"
+                          Margin="0,0,0,8"/>
+                
+                <Grid Margin="0,0,0,8" IsEnabled="{Binding IsChecked, ElementName=HaloEnabledCheckBox}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <TextBlock Grid.Column="0" Text="헤일로 색상" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" 
+                            x:Name="HaloColorButton"
+                            Click="HaloColorButton_Click"
+                            Width="60" Height="30"
+                            ToolTip="클릭하여 색상 선택">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource MaterialDesignFlatButton}">
+                                <Setter Property="Background">
+                                    <Setter.Value>
+                                        <SolidColorBrush Color="{Binding LabelHaloColor}"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </Grid>
+                
+                <Grid Margin="0,0,0,16" IsEnabled="{Binding IsChecked, ElementName=HaloEnabledCheckBox}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="100"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <TextBlock Grid.Column="0" Text="헤일로 두께" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1" 
+                             Text="{Binding LabelHaloWidth, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             materialDesign:HintAssist.Hint="두께"
+                             HorizontalAlignment="Right" Width="80"/>
+                </Grid>
+                
+                <!-- 배치 설정 -->
+                <TextBlock Text="라벨 배치" FontWeight="Medium" Margin="0,8,0,8"/>
+                <ComboBox x:Name="PlacementComboBox"
+                          ItemsSource="{Binding LabelPlacementOptions}"
+                          SelectedItem="{Binding LabelPlacement, Mode=TwoWay}"
+                          materialDesign:HintAssist.Hint="배치 위치"
+                          Margin="0,0,0,16"/>
+                
+                <!-- 미리보기 -->
+                <TextBlock Text="미리보기" FontWeight="Medium" Margin="0,8,0,8"/>
+                <Border Background="#F5F5F5" CornerRadius="4" Padding="16" Height="60">
+                    <TextBlock x:Name="PreviewText"
+                               Text="Sample Label 샘플"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               FontFamily="{Binding LabelFontFamily}"
+                               FontSize="{Binding LabelFontSize}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding LabelFontBold}" Value="True">
+                                        <Setter Property="FontWeight" Value="Bold"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding LabelFontItalic}" Value="True">
+                                        <Setter Property="FontStyle" Value="Italic"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                        <TextBlock.Foreground>
+                            <SolidColorBrush Color="{Binding LabelColor}"/>
+                        </TextBlock.Foreground>
+                        <TextBlock.Effect>
+                            <DropShadowEffect ShadowDepth="0" 
+                                              BlurRadius="{Binding LabelHaloWidth}"
+                                              Color="{Binding LabelHaloColor}"
+                                              Opacity="1"/>
+                        </TextBlock.Effect>
+                    </TextBlock>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+        
+        <!-- Buttons -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="취소" 
+                    Style="{StaticResource MaterialDesignFlatButton}"
+                    Click="CancelButton_Click"
+                    Width="80" Margin="0,0,8,0"/>
+            <Button Content="적용" 
+                    Style="{StaticResource MaterialDesignRaisedButton}"
+                    Click="ApplyButton_Click"
+                    Width="80"/>
+        </StackPanel>
+    </Grid>
+</Window>

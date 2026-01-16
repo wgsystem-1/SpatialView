@@ -1,0 +1,189 @@
+<Window x:Class="SpatialView.Views.Dialogs.LayerStyleDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="레이어 스타일 설정"
+        Height="600" Width="450"
+        MinHeight="500" MinWidth="400"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        Background="{DynamicResource MaterialDesignPaper}">
+    
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- 헤더 -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="레이어 스타일" Style="{StaticResource MaterialDesignHeadline6TextBlock}"/>
+            <TextBlock x:Name="LayerNameText" Text="레이어명" 
+                       Style="{StaticResource MaterialDesignBody2TextBlock}"
+                       Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+        </StackPanel>
+        
+        <!-- 스타일 설정 탭 -->
+        <TabControl Grid.Row="1" Style="{StaticResource MaterialDesignFilledTabControl}">
+            
+            <!-- 면 채움 스타일 -->
+            <TabItem Header="면 채움">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="8">
+                        <TextBlock Text="채움 색상" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                            <Border x:Name="FillColorPreview" Width="40" Height="40" 
+                                    BorderBrush="{DynamicResource MaterialDesignDivider}" BorderThickness="1"
+                                    CornerRadius="4" Margin="0,0,8,0"/>
+                            <Button Content="색상 선택" Click="SelectFillColor_Click" 
+                                    Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                        </StackPanel>
+                        
+                        <TextBlock Text="채움 투명도" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                            <Slider x:Name="FillOpacitySlider" Width="200" Minimum="0" Maximum="100" Value="100"
+                                    ValueChanged="FillOpacity_ValueChanged"/>
+                            <TextBlock x:Name="FillOpacityText" Text="100%" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        
+                        <TextBlock Text="채움 패턴" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <ComboBox x:Name="FillPatternComboBox" Width="200" HorizontalAlignment="Left"
+                                  SelectionChanged="FillPattern_SelectionChanged">
+                            <ComboBoxItem Content="단색" IsSelected="True"/>
+                            <ComboBoxItem Content="수평선"/>
+                            <ComboBoxItem Content="수직선"/>
+                            <ComboBoxItem Content="대각선 (/)"/>
+                            <ComboBoxItem Content="대각선 (\)"/>
+                            <ComboBoxItem Content="격자"/>
+                            <ComboBoxItem Content="점"/>
+                        </ComboBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            
+            <!-- 선 스타일 -->
+            <TabItem Header="선">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="8">
+                        <TextBlock Text="선 색상" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                            <Border x:Name="LineColorPreview" Width="40" Height="40" 
+                                    BorderBrush="{DynamicResource MaterialDesignDivider}" BorderThickness="1"
+                                    CornerRadius="4" Margin="0,0,8,0"/>
+                            <Button Content="색상 선택" Click="SelectLineColor_Click" 
+                                    Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                        </StackPanel>
+                        
+                        <TextBlock Text="선 두께" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                            <Slider x:Name="LineWidthSlider" Width="200" Minimum="0.5" Maximum="10" Value="1"
+                                    ValueChanged="LineWidth_ValueChanged"/>
+                            <TextBlock x:Name="LineWidthText" Text="1 px" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        
+                        <TextBlock Text="선 스타일" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <ComboBox x:Name="LineStyleComboBox" Width="200" HorizontalAlignment="Left"
+                                  SelectionChanged="LineStyle_SelectionChanged">
+                            <ComboBoxItem Content="실선" IsSelected="True"/>
+                            <ComboBoxItem Content="점선"/>
+                            <ComboBoxItem Content="파선"/>
+                            <ComboBoxItem Content="일점쇄선"/>
+                            <ComboBoxItem Content="이점쇄선"/>
+                        </ComboBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            
+            <!-- 점 스타일 -->
+            <TabItem Header="점/심볼">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="8">
+                        <TextBlock Text="심볼 타입" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <ComboBox x:Name="SymbolTypeComboBox" Width="200" HorizontalAlignment="Left" Margin="0,0,0,16"
+                                  SelectionChanged="SymbolType_SelectionChanged">
+                            <ComboBoxItem Content="원" IsSelected="True"/>
+                            <ComboBoxItem Content="사각형"/>
+                            <ComboBoxItem Content="삼각형"/>
+                            <ComboBoxItem Content="다이아몬드"/>
+                            <ComboBoxItem Content="별"/>
+                            <ComboBoxItem Content="십자"/>
+                            <ComboBoxItem Content="X"/>
+                        </ComboBox>
+                        
+                        <TextBlock Text="심볼 색상" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                            <Border x:Name="SymbolColorPreview" Width="40" Height="40" 
+                                    BorderBrush="{DynamicResource MaterialDesignDivider}" BorderThickness="1"
+                                    CornerRadius="4" Margin="0,0,8,0"/>
+                            <Button Content="색상 선택" Click="SelectSymbolColor_Click" 
+                                    Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                        </StackPanel>
+                        
+                        <TextBlock Text="심볼 크기" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                            <Slider x:Name="SymbolSizeSlider" Width="200" Minimum="2" Maximum="30" Value="8"
+                                    ValueChanged="SymbolSize_ValueChanged"/>
+                            <TextBlock x:Name="SymbolSizeText" Text="8 px" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        
+                        <TextBlock Text="외곽선 색상" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                            <Border x:Name="SymbolOutlineColorPreview" Width="40" Height="40" 
+                                    BorderBrush="{DynamicResource MaterialDesignDivider}" BorderThickness="1"
+                                    CornerRadius="4" Margin="0,0,8,0"/>
+                            <Button Content="색상 선택" Click="SelectSymbolOutlineColor_Click" 
+                                    Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                        </StackPanel>
+                        
+                        <TextBlock Text="외곽선 두께" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                            <Slider x:Name="SymbolOutlineWidthSlider" Width="200" Minimum="0" Maximum="5" Value="1"
+                                    ValueChanged="SymbolOutlineWidth_ValueChanged"/>
+                            <TextBlock x:Name="SymbolOutlineWidthText" Text="1 px" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            
+            <!-- 심볼 변환 -->
+            <TabItem Header="심볼 변환">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="8">
+                        <TextBlock Text="피처를 심볼로 변환" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <TextBlock Text="폴리곤/라인을 중심점 심볼로 변환합니다." 
+                                   Style="{StaticResource MaterialDesignBody2TextBlock}"
+                                   Foreground="{DynamicResource MaterialDesignBodyLight}"
+                                   TextWrapping="Wrap" Margin="0,0,0,16"/>
+                        
+                        <CheckBox x:Name="ConvertToSymbolCheckBox" Content="심볼로 표시" Margin="0,0,0,16"/>
+                        
+                        <TextBlock Text="심볼 타입" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <ComboBox x:Name="ConvertSymbolTypeComboBox" Width="200" HorizontalAlignment="Left" Margin="0,0,0,16"
+                                  IsEnabled="{Binding IsChecked, ElementName=ConvertToSymbolCheckBox}">
+                            <ComboBoxItem Content="원" IsSelected="True"/>
+                            <ComboBoxItem Content="사각형"/>
+                            <ComboBoxItem Content="삼각형"/>
+                            <ComboBoxItem Content="다이아몬드"/>
+                            <ComboBoxItem Content="별"/>
+                        </ComboBox>
+                        
+                        <TextBlock Text="심볼 크기" Style="{StaticResource MaterialDesignSubtitle2TextBlock}" Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                            <Slider x:Name="ConvertSymbolSizeSlider" Width="200" Minimum="4" Maximum="50" Value="12"
+                                    IsEnabled="{Binding IsChecked, ElementName=ConvertToSymbolCheckBox}"/>
+                            <TextBlock x:Name="ConvertSymbolSizeText" Text="12 px" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+        
+        <!-- 버튼 -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="적용" Click="Apply_Click" Style="{StaticResource MaterialDesignFlatButton}" Margin="0,0,8,0"/>
+            <Button Content="확인" Click="OK_Click" Style="{StaticResource MaterialDesignRaisedButton}" Margin="0,0,8,0"/>
+            <Button Content="취소" Click="Cancel_Click" Style="{StaticResource MaterialDesignFlatButton}"/>
+        </StackPanel>
+    </Grid>
+</Window>

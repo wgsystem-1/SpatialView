@@ -86,25 +86,32 @@ SpatialView/
 
 ### 빌드
 
+> ⚠️ **중요**: 항상 **Release 모드 + win-x64** 빌드를 사용합니다.
+
 ```bash
 # 저장소 클론
 git clone https://github.com/wgsystem-1/SpatialView.git
 cd SpatialView
 
-# 솔루션 빌드
-dotnet build SpatialView.sln
+# 솔루션 빌드 (Release, win-x64)
+dotnet build SpatialView.sln -c Release -r win-x64
 
 # 애플리케이션 실행
-dotnet run --project src/SpatialView/SpatialView.csproj
+dotnet run --project src/SpatialView/SpatialView.csproj -c Release -r win-x64
 ```
 
-### Release 빌드
+### 빌드 출력 경로
+
+```
+src/SpatialView/bin/Release/net10.0-windows/win-x64/SpatialView.exe
+```
+
+### 직접 실행
 
 ```bash
-dotnet build src/SpatialView/SpatialView.csproj --configuration Release
+# 빌드 후 직접 실행
+.\src\SpatialView\bin\Release\net10.0-windows\win-x64\SpatialView.exe
 ```
-
-빌드 결과물: `src/SpatialView/bin/Release/net8.0-windows/win-x64/`
 
 ## 📖 사용법
 

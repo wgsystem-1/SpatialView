@@ -283,14 +283,25 @@ public class MapContainer : Data.IMap, IDisposable
     }
     
     /// <summary>
-    /// 월드 좌표를 화면 좌표로 변환
+    /// 월드 좌표를 화면 좌표로 변환 (정수형)
     /// </summary>
     public System.Drawing.Point WorldToScreen(ICoordinate coordinate)
     {
         if (!_transform.IsValid || coordinate == null)
             return new System.Drawing.Point(0, 0);
-            
+
         return _transform.WorldToScreen(coordinate.X, coordinate.Y);
+    }
+
+    /// <summary>
+    /// 월드 좌표를 화면 좌표로 변환 (float 정밀도 유지)
+    /// </summary>
+    public System.Drawing.PointF WorldToScreenF(ICoordinate coordinate)
+    {
+        if (!_transform.IsValid || coordinate == null)
+            return new System.Drawing.PointF(0, 0);
+
+        return _transform.WorldToScreenF(coordinate.X, coordinate.Y);
     }
     
     /// <summary>
@@ -300,8 +311,19 @@ public class MapContainer : Data.IMap, IDisposable
     {
         if (!_transform.IsValid)
             return new Coordinate(0, 0);
-            
+
         return _transform.ScreenToWorld(point.X, point.Y);
+    }
+
+    /// <summary>
+    /// 화면 좌표를 월드 좌표로 변환 (double 정밀도 유지)
+    /// </summary>
+    public ICoordinate ScreenToWorld(double screenX, double screenY)
+    {
+        if (!_transform.IsValid)
+            return new Coordinate(0, 0);
+
+        return _transform.ScreenToWorld(screenX, screenY);
     }
     
     /// <summary>

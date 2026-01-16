@@ -511,20 +511,53 @@ public enum ShapeType
 
 internal class DbfTable : IDisposable
 {
-    private readonly FileStream _stream;
-    private readonly BinaryReader _reader;
+    private readonly string _dbfPath;
+    private FileStream _stream;
+    private BinaryReader _reader;
+    private BinaryWriter? _writer;
     private readonly Encoding _encoding;
-    private readonly DbfHeader _header;
+    private DbfHeader _header;
     private readonly List<DbfField> _fields;
+    private bool _isWriteMode;
 
     public DbfTable(string dbfPath, Encoding encoding)
     {
+        _dbfPath = dbfPath;
         _encoding = encoding;
         _stream = new FileStream(dbfPath, FileMode.Open, FileAccess.Read, FileShare.Read);
         _reader = new BinaryReader(_stream, _encoding);
-        
+
         _header = ReadHeader();
         _fields = ReadFields();
+    }
+
+    /// <summary>
+    /// 쓰기 모드로 전환 (파일 다시 열기)
+    /// </summary>
+    public bool EnableWriteMode()
+    {
+        if (_isWriteMode) return true;
+
+        try
+        {
+            _reader?.Dispose();
+            _stream?.Dispose();
+
+            _stream = new FileStream(_dbfPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            _reader = new BinaryReader(_stream, _encoding);
+            _writer = new BinaryWriter(_stream, _encoding);
+            _isWriteMode = true;
+            return true;
+        }
+        catch
+        {
+            // 쓰기 모드 전환 실패 시 읽기 모드로 복구
+            _stream = new FileStream(_dbfPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            _reader = new BinaryReader(_stream, _encoding);
+            _writer = null;
+            _isWriteMode = false;
+            return false;
+        }
     }
 
     private DbfHeader ReadHeader()
@@ -613,6 +646,129 @@ internal class DbfTable : IDisposable
         return record;
     }
 
+    /// <summary>
+    /// 레코드의 속성값 업데이트 (쓰기 모드에서만 동작)
+    /// </summary>
+    public bool WriteRecord(int recordIndex, Dictionary<string, object?> attributes)
+    {
+        if (!_isWriteMode || _writer == null)
+            return false;
+
+        if (recordIndex < 0 || recordIndex >= _header.RecordCount)
+            return false;
+
+        try
+        {
+            var recordOffset = _header.HeaderLength + (recordIndex * _header.RecordLength);
+            _stream.Seek(recordOffset, SeekOrigin.Begin);
+
+            // 삭제 플래그 (공백 = 유효한 레코드)
+            _writer.Write((byte)' ');
+
+            // 각 필드 값 쓰기
+            foreach (var field in _fields)
+            {
+                string valueStr;
+                if (attributes.TryGetValue(field.Name, out var value) && value != null && value != DBNull.Value)
+                {
+                    valueStr = FormatFieldValue(value, field);
+                }
+                else
+                {
+                    valueStr = new string(' ', field.Length);
+                }
+
+                // 필드 길이에 맞춰 패딩/잘라내기
+                var bytes = _encoding.GetBytes(valueStr.PadRight(field.Length));
+                if (bytes.Length > field.Length)
+                {
+                    bytes = bytes.Take(field.Length).ToArray();
+                }
+                else if (bytes.Length < field.Length)
+                {
+                    var paddedBytes = new byte[field.Length];
+                    Array.Copy(bytes, paddedBytes, bytes.Length);
+                    // 나머지는 공백으로 채우기
+                    for (int i = bytes.Length; i < field.Length; i++)
+                        paddedBytes[i] = (byte)' ';
+                    bytes = paddedBytes;
+                }
+
+                _writer.Write(bytes);
+            }
+
+            _writer.Flush();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error writing record {recordIndex}: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 필드 값을 DBF 형식 문자열로 변환
+    /// </summary>
+    private string FormatFieldValue(object value, DbfField field)
+    {
+        return field.Type switch
+        {
+            'C' or 'M' => value.ToString() ?? "",
+            'N' => FormatNumber(value, field),
+            'D' => FormatDate(value),
+            'L' => FormatLogical(value),
+            _ => value.ToString() ?? ""
+        };
+    }
+
+    private string FormatNumber(object value, DbfField field)
+    {
+        if (value is double d)
+        {
+            if (field.Decimals > 0)
+                return d.ToString($"F{field.Decimals}", CultureInfo.InvariantCulture).PadLeft(field.Length);
+            return ((long)d).ToString().PadLeft(field.Length);
+        }
+        if (value is float f)
+        {
+            if (field.Decimals > 0)
+                return f.ToString($"F{field.Decimals}", CultureInfo.InvariantCulture).PadLeft(field.Length);
+            return ((long)f).ToString().PadLeft(field.Length);
+        }
+        if (value is decimal dec)
+        {
+            if (field.Decimals > 0)
+                return dec.ToString($"F{field.Decimals}", CultureInfo.InvariantCulture).PadLeft(field.Length);
+            return ((long)dec).ToString().PadLeft(field.Length);
+        }
+        if (value is int i)
+            return i.ToString().PadLeft(field.Length);
+        if (value is long l)
+            return l.ToString().PadLeft(field.Length);
+
+        return value.ToString()?.PadLeft(field.Length) ?? new string(' ', field.Length);
+    }
+
+    private static string FormatDate(object value)
+    {
+        if (value is DateTime dt)
+            return dt.ToString("yyyyMMdd");
+        return "        "; // 8 spaces
+    }
+
+    private static string FormatLogical(object value)
+    {
+        if (value is bool b)
+            return b ? "T" : "F";
+        return "?";
+    }
+
+    /// <summary>
+    /// 레코드 수 반환
+    /// </summary>
+    public int RecordCount => _header.RecordCount;
+
     private static object? ParseNumber(string value, byte decimals)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -683,8 +839,213 @@ internal class DbfTable : IDisposable
 
     public void Dispose()
     {
+        _writer?.Dispose();
         _reader?.Dispose();
         _stream?.Dispose();
+    }
+
+    /// <summary>
+    /// DBF 파일 전체 재작성 (필드 구조 변경 지원)
+    /// </summary>
+    /// <param name="features">저장할 피처 목록</param>
+    /// <param name="fieldDefinitions">필드 정의 (이름, 타입, 길이, 소수점)</param>
+    /// <returns>성공 여부</returns>
+    public bool RewriteDbf(IEnumerable<IFeature> features, List<DbfFieldDefinition> fieldDefinitions)
+    {
+        if (fieldDefinitions == null || fieldDefinitions.Count == 0)
+            return false;
+
+        var featureList = features.ToList();
+        var tempPath = _dbfPath + ".tmp";
+
+        try
+        {
+            // 먼저 기존 파일 닫기
+            _writer?.Dispose();
+            _reader?.Dispose();
+            _stream?.Dispose();
+
+            using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
+            using (var writer = new BinaryWriter(fs, _encoding))
+            {
+                // 필드 정보로 새 헤더 계산
+                var recordLength = (short)(1 + fieldDefinitions.Sum(f => f.Length)); // 1 for deletion flag
+                var headerLength = (short)(32 + fieldDefinitions.Count * 32 + 1); // 32 header + 32*fields + terminator
+
+                // 헤더 작성
+                WriteDbfHeader(writer, featureList.Count, headerLength, recordLength);
+
+                // 필드 정의 작성
+                foreach (var field in fieldDefinitions)
+                {
+                    WriteDbfFieldDescriptor(writer, field);
+                }
+
+                // 헤더 종결자
+                writer.Write((byte)0x0D);
+
+                // 레코드 작성
+                foreach (var feature in featureList)
+                {
+                    WriteDbfRecord(writer, feature, fieldDefinitions);
+                }
+
+                // 파일 종결자
+                writer.Write((byte)0x1A);
+            }
+
+            // 원본 파일 교체
+            File.Delete(_dbfPath);
+            File.Move(tempPath, _dbfPath);
+
+            // 파일 다시 열기
+            _stream = new FileStream(_dbfPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            _reader = new BinaryReader(_stream, _encoding);
+            _header = ReadHeader();
+            _fields.Clear();
+            _fields.AddRange(ReadFields());
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"RewriteDbf error: {ex.Message}");
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+
+            // 파일 다시 열기 시도
+            try
+            {
+                _stream = new FileStream(_dbfPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                _reader = new BinaryReader(_stream, _encoding);
+            }
+            catch { }
+
+            return false;
+        }
+    }
+
+    private void WriteDbfHeader(BinaryWriter writer, int recordCount, short headerLength, short recordLength)
+    {
+        // Version (dBase III)
+        writer.Write((byte)0x03);
+        // Last update date (YY MM DD)
+        var now = DateTime.Now;
+        writer.Write((byte)(now.Year - 1900));
+        writer.Write((byte)now.Month);
+        writer.Write((byte)now.Day);
+        // Record count
+        writer.Write(recordCount);
+        // Header length
+        writer.Write(headerLength);
+        // Record length
+        writer.Write(recordLength);
+        // Reserved bytes (20)
+        writer.Write(new byte[20]);
+    }
+
+    private void WriteDbfFieldDescriptor(BinaryWriter writer, DbfFieldDefinition field)
+    {
+        // Field name (11 bytes, null-padded)
+        var nameBytes = _encoding.GetBytes(field.Name.PadRight(11, '\0'));
+        if (nameBytes.Length > 11)
+            nameBytes = nameBytes.Take(11).ToArray();
+        else if (nameBytes.Length < 11)
+        {
+            var padded = new byte[11];
+            Array.Copy(nameBytes, padded, nameBytes.Length);
+            nameBytes = padded;
+        }
+        writer.Write(nameBytes);
+
+        // Field type (1 byte)
+        writer.Write((byte)field.Type);
+
+        // Reserved (4 bytes)
+        writer.Write(new byte[4]);
+
+        // Field length (1 byte)
+        writer.Write(field.Length);
+
+        // Decimal count (1 byte)
+        writer.Write(field.Decimals);
+
+        // Reserved (14 bytes)
+        writer.Write(new byte[14]);
+    }
+
+    private void WriteDbfRecord(BinaryWriter writer, IFeature feature, List<DbfFieldDefinition> fields)
+    {
+        // Deletion flag (space = not deleted)
+        writer.Write((byte)' ');
+
+        foreach (var field in fields)
+        {
+            var value = feature.Attributes[field.Name];
+            var valueStr = FormatFieldValue(value ?? DBNull.Value, new DbfField
+            {
+                Name = field.Name,
+                Type = field.Type,
+                Length = field.Length,
+                Decimals = field.Decimals
+            });
+
+            // 필드 길이에 맞춰 패딩/잘라내기
+            var bytes = _encoding.GetBytes(valueStr.PadRight(field.Length));
+            if (bytes.Length > field.Length)
+                bytes = bytes.Take(field.Length).ToArray();
+            else if (bytes.Length < field.Length)
+            {
+                var padded = new byte[field.Length];
+                Array.Copy(bytes, padded, bytes.Length);
+                for (int i = bytes.Length; i < field.Length; i++)
+                    padded[i] = (byte)' ';
+                bytes = padded;
+            }
+
+            writer.Write(bytes);
+        }
+    }
+
+    /// <summary>
+    /// 현재 필드 정의 목록 가져오기
+    /// </summary>
+    public List<DbfFieldDefinition> GetFieldDefinitions()
+    {
+        return _fields.Select(f => new DbfFieldDefinition
+        {
+            Name = f.Name,
+            Type = f.Type,
+            Length = f.Length,
+            Decimals = f.Decimals
+        }).ToList();
+    }
+}
+
+/// <summary>
+/// DBF 필드 정의
+/// </summary>
+public class DbfFieldDefinition
+{
+    public string Name { get; set; } = string.Empty;
+    public char Type { get; set; } = 'C'; // C=Character, N=Numeric, D=Date, L=Logical
+    public byte Length { get; set; } = 10;
+    public byte Decimals { get; set; } = 0;
+
+    /// <summary>
+    /// .NET 타입에서 DBF 필드 정의 생성
+    /// </summary>
+    public static DbfFieldDefinition FromType(string name, Type type)
+    {
+        return type switch
+        {
+            Type t when t == typeof(string) => new DbfFieldDefinition { Name = name, Type = 'C', Length = 254 },
+            Type t when t == typeof(int) || t == typeof(long) => new DbfFieldDefinition { Name = name, Type = 'N', Length = 19 },
+            Type t when t == typeof(double) || t == typeof(float) || t == typeof(decimal) => new DbfFieldDefinition { Name = name, Type = 'N', Length = 19, Decimals = 6 },
+            Type t when t == typeof(DateTime) => new DbfFieldDefinition { Name = name, Type = 'D', Length = 8 },
+            Type t when t == typeof(bool) => new DbfFieldDefinition { Name = name, Type = 'L', Length = 1 },
+            _ => new DbfFieldDefinition { Name = name, Type = 'C', Length = 254 }
+        };
     }
 }
 
@@ -785,7 +1146,7 @@ partial class ShapefileDataSource
     }
 
     /// <summary>
-    /// 안전하게 속성을 읽어오는 헬퍼 메서드  
+    /// 안전하게 속성을 읽어오는 헬퍼 메서드
     /// </summary>
     private Dictionary<string, object>? ReadAttributesSafely(int recordIndex)
     {
@@ -798,6 +1159,129 @@ partial class ShapefileDataSource
             System.Diagnostics.Debug.WriteLine($"Error reading attributes for record {recordIndex}: {ex.Message}");
             return null;
         }
+    }
+
+    /// <summary>
+    /// 피처 속성 업데이트 (Shapefile DBF 파일에 저장)
+    /// </summary>
+    public override async Task<bool> UpdateFeatureAsync(string tableName, IFeature feature)
+    {
+        if (_dbfTable == null)
+        {
+            LastError = "DBF table not loaded";
+            return false;
+        }
+
+        return await Task.Run(() =>
+        {
+            try
+            {
+                // 쓰기 모드 활성화
+                if (!_dbfTable.EnableWriteMode())
+                {
+                    LastError = "Cannot enable write mode. File may be locked or read-only.";
+                    return false;
+                }
+
+                // FID로 레코드 인덱스 찾기 (FID = 레코드 인덱스 + 1 이므로)
+                var recordIndex = (int)feature.Id - 1;
+                if (recordIndex < 0 || recordIndex >= _dbfTable.RecordCount)
+                {
+                    LastError = $"Invalid feature ID: {feature.Id}";
+                    return false;
+                }
+
+                // 속성 딕셔너리 생성
+                var attributes = new Dictionary<string, object?>();
+                foreach (var attrName in feature.Attributes.AttributeNames)
+                {
+                    if (attrName == "Geometry" || attrName == "_geom_")
+                        continue;
+                    attributes[attrName] = feature.Attributes[attrName];
+                }
+
+                // DBF 레코드 업데이트
+                if (!_dbfTable.WriteRecord(recordIndex, attributes))
+                {
+                    LastError = "Failed to write record to DBF file";
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LastError = $"Update failed: {ex.Message}";
+                System.Diagnostics.Debug.WriteLine($"UpdateFeatureAsync error: {ex}");
+                return false;
+            }
+        });
+    }
+
+    /// <summary>
+    /// 여러 피처의 속성을 일괄 업데이트
+    /// </summary>
+    public async Task<int> UpdateFeaturesAsync(string tableName, IEnumerable<IFeature> features)
+    {
+        if (_dbfTable == null)
+        {
+            LastError = "DBF table not loaded";
+            return 0;
+        }
+
+        return await Task.Run(() =>
+        {
+            try
+            {
+                // 쓰기 모드 활성화
+                if (!_dbfTable.EnableWriteMode())
+                {
+                    LastError = "Cannot enable write mode. File may be locked or read-only.";
+                    return 0;
+                }
+
+                int successCount = 0;
+                foreach (var feature in features)
+                {
+                    var recordIndex = (int)feature.Id - 1;
+                    if (recordIndex < 0 || recordIndex >= _dbfTable.RecordCount)
+                        continue;
+
+                    var attributes = new Dictionary<string, object?>();
+                    foreach (var attrName in feature.Attributes.AttributeNames)
+                    {
+                        if (attrName == "Geometry" || attrName == "_geom_")
+                            continue;
+                        attributes[attrName] = feature.Attributes[attrName];
+                    }
+
+                    if (_dbfTable.WriteRecord(recordIndex, attributes))
+                        successCount++;
+                }
+
+                return successCount;
+            }
+            catch (Exception ex)
+            {
+                LastError = $"Batch update failed: {ex.Message}";
+                System.Diagnostics.Debug.WriteLine($"UpdateFeaturesAsync error: {ex}");
+                return 0;
+            }
+        });
+    }
+
+    /// <summary>
+    /// DBF 파일 전체 재작성 (필드 구조 변경 포함)
+    /// </summary>
+    public bool RewriteDbf(IEnumerable<IFeature> features, List<DbfFieldDefinition> fieldDefinitions)
+    {
+        if (_dbfTable == null)
+        {
+            LastError = "DBF table not loaded";
+            return false;
+        }
+
+        return _dbfTable.RewriteDbf(features, fieldDefinitions);
     }
 
     #endregion

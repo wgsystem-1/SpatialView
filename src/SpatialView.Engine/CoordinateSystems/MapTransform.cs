@@ -100,13 +100,29 @@ public class MapTransform
         var point = WorldToScreen(new Coordinate(worldX, worldY));
         return new System.Drawing.Point((int)Math.Round(point.X), (int)Math.Round(point.Y));
     }
+
+    /// <summary>
+    /// 월드 좌표를 화면 좌표로 변환 (float 정밀도 유지)
+    /// </summary>
+    public PointF WorldToScreenF(double worldX, double worldY)
+    {
+        return WorldToScreen(new Coordinate(worldX, worldY));
+    }
     
     /// <summary>
-    /// 화면 좌표를 월드 좌표로 변환
+    /// 화면 좌표를 월드 좌표로 변환 (정수형)
     /// </summary>
     public ICoordinate ScreenToWorld(int screenX, int screenY)
     {
         return ScreenToWorld(new PointF(screenX, screenY));
+    }
+
+    /// <summary>
+    /// 화면 좌표를 월드 좌표로 변환 (double 정밀도)
+    /// </summary>
+    public ICoordinate ScreenToWorld(double screenX, double screenY)
+    {
+        return ScreenToWorld(new PointF((float)screenX, (float)screenY));
     }
     
     /// <summary>

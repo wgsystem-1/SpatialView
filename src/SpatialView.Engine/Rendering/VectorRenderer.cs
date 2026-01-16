@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using SpatialView.Engine.Rendering.Optimization;
 
 namespace SpatialView.Engine.Rendering;
 
@@ -11,6 +12,24 @@ namespace SpatialView.Engine.Rendering;
 public class VectorRenderer : IVectorRenderer
 {
     private Styling.Rules.StyleEngine? _styleEngine;
+
+    // 성능 최적화: Brush/Pen 캐싱
+    private readonly Dictionary<Color, SolidColorBrush> _brushCache = new();
+    private readonly Dictionary<(Color, double), Pen> _penCache = new();
+    private readonly Dictionary<(Color, double, double[]), Pen> _dashedPenCache = new();
+
+    // 성능 최적화: 지오메트리 배칭
+    private GeometryBatcher? _batcher;
+    private bool _useBatching = true;
+
+    /// <summary>
+    /// 배칭 렌더링 사용 여부
+    /// </summary>
+    public bool UseBatching
+    {
+        get => _useBatching;
+        set => _useBatching = value;
+    }
     
     /// <summary>
     /// 스타일 엔진
@@ -20,14 +39,77 @@ public class VectorRenderer : IVectorRenderer
         get => _styleEngine;
         set => _styleEngine = value;
     }
+    
+    // 성능 최적화: 로그 비활성화 (필요시 활성화)
+    private static readonly bool _enableLogging = false;
+    
     private static void Log(string msg)
     {
+        if (!_enableLogging) return;
+        
         try
         {
-            var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "SpatialView_render.log");
-            System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n");
+            System.Diagnostics.Debug.WriteLine($"[VectorRenderer] {msg}");
         }
         catch { }
+    }
+    
+    /// <summary>
+    /// 캐시된 Brush 가져오기 (성능 최적화)
+    /// </summary>
+    private SolidColorBrush GetCachedBrush(Color color)
+    {
+        if (!_brushCache.TryGetValue(color, out var brush))
+        {
+            brush = new SolidColorBrush(color);
+            brush.Freeze(); // Freeze로 성능 향상
+            _brushCache[color] = brush;
+        }
+        return brush;
+    }
+    
+    /// <summary>
+    /// 캐시된 Pen 가져오기 (성능 최적화)
+    /// </summary>
+    private Pen GetCachedPen(Color color, double thickness)
+    {
+        var key = (color, thickness);
+        if (!_penCache.TryGetValue(key, out var pen))
+        {
+            pen = new Pen(GetCachedBrush(color), thickness);
+            pen.Freeze(); // Freeze로 성능 향상
+            _penCache[key] = pen;
+        }
+        return pen;
+    }
+    
+    /// <summary>
+    /// 캐시된 대시 Pen 가져오기 (성능 최적화)
+    /// </summary>
+    private Pen GetCachedDashedPen(Color color, double thickness, double[]? dashPattern)
+    {
+        if (dashPattern == null || dashPattern.Length == 0)
+            return GetCachedPen(color, thickness);
+            
+        var key = (color, thickness, dashPattern);
+        if (!_dashedPenCache.TryGetValue(key, out var pen))
+        {
+            pen = new Pen(GetCachedBrush(color), thickness);
+            pen.DashStyle = new DashStyle(dashPattern, 0);
+            pen.Freeze();
+            _dashedPenCache[key] = pen;
+        }
+        return pen;
+    }
+    
+    /// <summary>
+    /// 캐시 초기화 (줌 변경 등에서 호출)
+    /// </summary>
+    public void ClearCache()
+    {
+        _brushCache.Clear();
+        _penCache.Clear();
+        _dashedPenCache.Clear();
     }
 
     /// <inheritdoc/>
@@ -35,56 +117,241 @@ public class VectorRenderer : IVectorRenderer
     {
         if (features == null || context?.DrawingContext == null)
         {
-            Log($"VectorRenderer.RenderFeatures: features={features != null}, context={context != null}, dc={context?.DrawingContext != null}");
             return;
         }
 
-        var featureList = features.ToList();
-        Log($"VectorRenderer.RenderFeatures: 입력 피처 수={featureList.Count}, ViewExtent={context.ViewExtent}, Zoom={context.Zoom}");
+        // 해상도(맵 단위/픽셀) 및 간단 LOD(최소 픽셀 크기 필터)
+        var resolution = context.ViewExtent.Width / Math.Max(1.0, context.ScreenSize.Width);
+        var lodLevel = LodUtils.CalculateLODLevel(resolution);
+        var minPixelSize = 0.5; // 0.5px 미만은 스킵 (라인/폴리곤)
 
-        // 현재 줌 레벨에 따른 LOD 계산
-        var lodLevel = LevelOfDetail.CalculateLODLevel(context.Zoom);
-        Log($"VectorRenderer.RenderFeatures: LOD 레벨={lodLevel}");
-        
-        // 뷰포트 컬링을 통해 보이는 피처만 필터링
-        var visibleFeatures = featureList.Where(f => 
-            f.Geometry == null || 
-            f.Geometry.Envelope == null || 
-            f.Geometry.Envelope.IsNull ||
-            ViewportCulling.IsGeometryVisible(f.Geometry, context.ViewExtent)).ToList();
-        
-        Log($"VectorRenderer.RenderFeatures: 컬링 후 피처 수={visibleFeatures.Count} (원본={featureList.Count})");
-
-        if (!visibleFeatures.Any())
+        // 배칭 렌더링 모드 (비활성화 상태에서는 스킵)
+        if (_useBatching && context.LayerStyle != null)
         {
-            Log($"VectorRenderer.RenderFeatures: 보이는 피처 없음!");
+            RenderFeaturesWithBatching(features, context, lodLevel, resolution, minPixelSize);
             return;
         }
 
-        // 안정성을 위해 모든 피처를 순차 렌더링 (병렬 렌더링 일시 중단)
-        Log($"VectorRenderer.RenderFeatures: 순차 렌더링 시작");
-        int renderedCount = 0;
-        foreach (var feature in visibleFeatures)
+        // 직접 렌더링 모드 (최적화됨) - LOD 체크 최소화
+        foreach (var feature in features)
         {
             try
             {
-                if (feature.Geometry == null) continue;
+                if (feature?.Geometry == null) continue;
 
-                // LOD에 따른 지오메트리 렌더링 여부 확인
-                if (LevelOfDetail.ShouldRenderGeometry(feature.Geometry, context, (LevelOfDetail.LODLevel)lodLevel))
+                // 뷰포트 컬링
+                var envelope = feature.Geometry.Envelope;
+                if (envelope != null && !envelope.IsNull && !context.ViewExtent.Intersects(envelope))
                 {
-                    RenderFeature(feature, context, (LevelOfDetail.LODLevel)lodLevel);
-                    renderedCount++;
+                    continue;
+                }
+
+                // 최소 픽셀 크기 필터 (포인트 제외)
+                if (feature.Geometry.GeometryType != Engine.Geometry.GeometryType.Point &&
+                    feature.Geometry.GeometryType != Engine.Geometry.GeometryType.MultiPoint &&
+                    envelope != null)
+                {
+                    var w = envelope.Width / resolution;
+                    var h = envelope.Height / resolution;
+                    if (w < minPixelSize && h < minPixelSize)
+                        continue;
+                }
+
+                // LOD 기반 최소 픽셀 크기 필터
+                if (!LodUtils.ShouldRenderGeometry(feature.Geometry, context, lodLevel))
+                {
+                    continue;
+                }
+
+                // 레이어 스타일로 직접 렌더링
+                if (context.LayerStyle != null)
+                {
+                    RenderGeometryWithLayerStyleFast(feature.Geometry, context);
+                }
+                else
+                {
+                    var style = _styleEngine?.GetStyle(feature, context.Zoom)
+                               ?? feature.Style
+                               ?? GetDefaultStyleForGeometry(feature.Geometry);
+                    RenderGeometry(feature.Geometry, context, style);
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                // 개별 피처 렌더링 오류는 로그만 남기고 계속 진행
-                if (renderedCount < 1) // 처음 발생한 에러만 로그
-                    Log($"Feature rendering error: {ex.Message}");
+                // 개별 피처 렌더링 오류는 무시하고 계속 진행
             }
         }
-        Log($"VectorRenderer.RenderFeatures: 순차 렌더링 완료 (그려진 피처: {renderedCount})");
+    }
+
+    /// <summary>
+    /// 배칭을 사용한 피처 렌더링 (성능 최적화)
+    /// </summary>
+    private void RenderFeaturesWithBatching(IEnumerable<Data.IFeature> features, RenderContext context, LodUtils.LODLevel lodLevel, double resolution, double minPixelSize)
+    {
+        _batcher ??= new GeometryBatcher();
+
+        var layerStyle = context.LayerStyle!;
+
+        // 투명도 적용된 색상
+        var fillColor = Color.FromArgb(
+            (byte)(layerStyle.FillColor.A * layerStyle.Opacity),
+            layerStyle.FillColor.R,
+            layerStyle.FillColor.G,
+            layerStyle.FillColor.B);
+
+        var strokeColor = Color.FromArgb(
+            (byte)(layerStyle.StrokeColor.A * layerStyle.Opacity),
+            layerStyle.StrokeColor.R,
+            layerStyle.StrokeColor.G,
+            layerStyle.StrokeColor.B);
+
+        int processedCount = 0;
+        int skippedCount = 0;
+
+        foreach (var feature in features)
+        {
+            try
+            {
+                if (feature?.Geometry == null)
+                {
+                    skippedCount++;
+                    continue;
+                }
+
+                // 뷰포트 컬링
+                var envelope = feature.Geometry.Envelope;
+                if (envelope != null && !envelope.IsNull &&
+                    !ViewportCulling.IsGeometryVisible(feature.Geometry, context.ViewExtent))
+                {
+                    skippedCount++;
+                    continue;
+                }
+
+                // 최소 픽셀 크기 필터 (포인트 제외)
+                var geoEnvelope = feature.Geometry.Envelope;
+                if (feature.Geometry.GeometryType != Engine.Geometry.GeometryType.Point &&
+                    feature.Geometry.GeometryType != Engine.Geometry.GeometryType.MultiPoint &&
+                    geoEnvelope != null)
+                {
+                    var w = geoEnvelope.Width / resolution;
+                    var h = geoEnvelope.Height / resolution;
+                    if (w < minPixelSize && h < minPixelSize)
+                    {
+                        skippedCount++;
+                        continue;
+                    }
+                }
+
+                // LOD 체크
+                if (!LodUtils.ShouldRenderGeometry(feature.Geometry, context, lodLevel))
+                {
+                    skippedCount++;
+                    continue;
+                }
+
+                // 지오메트리 타입별 배칭
+                BatchGeometry(feature.Geometry, context, fillColor, strokeColor, layerStyle);
+                processedCount++;
+            }
+            catch
+            {
+                skippedCount++;
+            }
+        }
+
+        // 배치된 모든 지오메트리를 한번에 렌더링
+        _batcher.Flush(context.DrawingContext);
+    }
+
+    /// <summary>
+    /// 지오메트리를 배치에 추가
+    /// </summary>
+    private void BatchGeometry(
+        Geometry.IGeometry geometry,
+        RenderContext context,
+        Color fillColor,
+        Color strokeColor,
+        LayerRenderStyle layerStyle)
+    {
+        if (_batcher == null) return;
+
+        switch (geometry)
+        {
+            case Geometry.Point point:
+                _batcher.AddPoint(
+                    point.Coordinate.X, point.Coordinate.Y,
+                    context, fillColor, strokeColor,
+                    layerStyle.PointSize, layerStyle.StrokeWidth, layerStyle.Opacity);
+                break;
+
+            case Geometry.LineString lineString:
+                if (lineString.Coordinates?.Length >= 2)
+                {
+                    _batcher.AddLine(
+                        lineString.Coordinates,
+                        context, strokeColor,
+                        layerStyle.StrokeWidth, layerStyle.DashPattern);
+                }
+                break;
+
+            case Geometry.Polygon polygon:
+                if (polygon.ExteriorRing?.Coordinates?.Length >= 3)
+                {
+                    var holes = polygon.InteriorRings?
+                        .Where(h => h?.Coordinates?.Length >= 3)
+                        .Select(h => h.Coordinates)
+                        .ToList();
+
+                    _batcher.AddPolygon(
+                        polygon.ExteriorRing.Coordinates,
+                        holes,
+                        context, fillColor, strokeColor,
+                        layerStyle.StrokeWidth, layerStyle.Opacity);
+                }
+                break;
+
+            case Geometry.MultiPoint multiPoint:
+                foreach (var pt in multiPoint.Geometries.Cast<Geometry.Point>())
+                {
+                    _batcher.AddPoint(
+                        pt.Coordinate.X, pt.Coordinate.Y,
+                        context, fillColor, strokeColor,
+                        layerStyle.PointSize, layerStyle.StrokeWidth, layerStyle.Opacity);
+                }
+                break;
+
+            case Geometry.MultiLineString multiLineString:
+                foreach (var line in multiLineString.Geometries.Cast<Geometry.LineString>())
+                {
+                    if (line.Coordinates?.Length >= 2)
+                    {
+                        _batcher.AddLine(
+                            line.Coordinates,
+                            context, strokeColor,
+                            layerStyle.StrokeWidth, layerStyle.DashPattern);
+                    }
+                }
+                break;
+
+            case Geometry.MultiPolygon multiPolygon:
+                foreach (var poly in multiPolygon.Geometries.Cast<Geometry.Polygon>())
+                {
+                    if (poly.ExteriorRing?.Coordinates?.Length >= 3)
+                    {
+                        var holes = poly.InteriorRings?
+                            .Where(h => h?.Coordinates?.Length >= 3)
+                            .Select(h => h.Coordinates)
+                            .ToList();
+
+                        _batcher.AddPolygon(
+                            poly.ExteriorRing.Coordinates,
+                            holes,
+                            context, fillColor, strokeColor,
+                            layerStyle.StrokeWidth, layerStyle.Opacity);
+                    }
+                }
+                break;
+        }
     }
 
     /// <summary>
@@ -105,7 +372,7 @@ public class VectorRenderer : IVectorRenderer
                 
                 foreach (var feature in chunk)
                 {
-                    if (LevelOfDetail.ShouldRenderGeometry(feature.Geometry, context, (LevelOfDetail.LODLevel)lodLevel))
+                    if (LodUtils.ShouldRenderGeometry(feature.Geometry, context, (LodUtils.LODLevel)lodLevel))
                     {
                         var style = GetFeatureStyle(feature, context);
                         var screenGeometry = TransformGeometry(feature.Geometry, context);
@@ -146,9 +413,9 @@ public class VectorRenderer : IVectorRenderer
             {
                 try
                 {
-                    if (LevelOfDetail.ShouldRenderGeometry(feature.Geometry, context, (LevelOfDetail.LODLevel)lodLevel))
+                    if (LodUtils.ShouldRenderGeometry(feature.Geometry, context, (LodUtils.LODLevel)lodLevel))
                     {
-                        RenderFeature(feature, context, (LevelOfDetail.LODLevel)lodLevel);
+                        RenderFeature(feature, context, (LodUtils.LODLevel)lodLevel);
                     }
                 }
                 catch (Exception renderEx)
@@ -211,29 +478,58 @@ public class VectorRenderer : IVectorRenderer
     {
         if (polygon.ExteriorRing == null) return null;
         var exterior = context.ConvertToScreenPoints(polygon.ExteriorRing.Coordinates);
-        if (exterior == null || exterior.Length == 0) return null;
+        if (exterior == null || exterior.Length < 3) return null;
 
-        var geometry = new StreamGeometry();
-        using (var gc = geometry.Open())
+        // PathGeometry를 사용하여 더 명확하게 홀 처리
+        var pathGeometry = new PathGeometry();
+        // 홀(hole)이 있는 폴리곤을 올바르게 렌더링하기 위해 EvenOdd 규칙 사용
+        pathGeometry.FillRule = FillRule.EvenOdd;
+        
+        // 외곽 링 Figure 생성
+        var exteriorFigure = new PathFigure
         {
-            gc.BeginFigure(exterior[0], true, true);
-            gc.PolyLineTo(exterior.Skip(1).ToList(), true, true);
+            StartPoint = exterior[0],
+            IsClosed = true,
+            IsFilled = true
+        };
+        
+        // 외곽 링의 나머지 점들 추가
+        if (exterior.Length > 1)
+        {
+            var exteriorSegment = new PolyLineSegment(exterior.Skip(1), true);
+            exteriorFigure.Segments.Add(exteriorSegment);
+        }
+        pathGeometry.Figures.Add(exteriorFigure);
 
-            if (polygon.InteriorRings != null)
+        // 내부 링(홀) 그리기 - 각 홀은 별도의 Figure로 추가
+        if (polygon.InteriorRings != null && polygon.InteriorRings.Count > 0)
+        {
+            foreach (var hole in polygon.InteriorRings)
             {
-                foreach (var hole in polygon.InteriorRings)
+                if (hole?.Coordinates == null || hole.Coordinates.Length < 3) continue;
+                
+                var holePoints = context.ConvertToScreenPoints(hole.Coordinates);
+                if (holePoints == null || holePoints.Length < 3) continue;
+                
+                // 홀 Figure 생성 - EvenOdd 규칙에 의해 이 영역은 비워짐
+                var holeFigure = new PathFigure
                 {
-                    var holePoints = context.ConvertToScreenPoints(hole.Coordinates);
-                    if (holePoints != null && holePoints.Length > 0)
-                    {
-                        gc.BeginFigure(holePoints[0], true, true);
-                        gc.PolyLineTo(holePoints.Skip(1).ToList(), true, true);
-                    }
+                    StartPoint = holePoints[0],
+                    IsClosed = true,
+                    IsFilled = true  // EvenOdd에서는 true여도 홀로 처리됨
+                };
+                
+                if (holePoints.Length > 1)
+                {
+                    var holeSegment = new PolyLineSegment(holePoints.Skip(1), true);
+                    holeFigure.Segments.Add(holeSegment);
                 }
+                pathGeometry.Figures.Add(holeFigure);
             }
         }
-        geometry.Freeze();
-        return geometry;
+        
+        pathGeometry.Freeze();
+        return pathGeometry;
     }
 
     private System.Windows.Media.Geometry? CreateMultiPointGeometry(Geometry.MultiPoint multiPoint, RenderContext context)
@@ -260,13 +556,63 @@ public class VectorRenderer : IVectorRenderer
 
     private System.Windows.Media.Geometry? CreateMultiPolygonGeometry(Geometry.MultiPolygon multiPolygon, RenderContext context)
     {
-        var group = new GeometryGroup();
+        // 모든 폴리곤을 단일 PathGeometry에 추가하여 홀 처리를 일관되게 함
+        var pathGeometry = new PathGeometry();
+        pathGeometry.FillRule = FillRule.EvenOdd;
+        
         foreach (var poly in multiPolygon.Geometries)
         {
-            var geom = CreatePolygonGeometry(poly, context);
-            if (geom != null) group.Children.Add(geom);
+            if (poly?.ExteriorRing == null) continue;
+            
+            var exterior = context.ConvertToScreenPoints(poly.ExteriorRing.Coordinates);
+            if (exterior == null || exterior.Length < 3) continue;
+            
+            // 외곽 링 Figure 생성
+            var exteriorFigure = new PathFigure
+            {
+                StartPoint = exterior[0],
+                IsClosed = true,
+                IsFilled = true
+            };
+            
+            if (exterior.Length > 1)
+            {
+                var exteriorSegment = new PolyLineSegment(exterior.Skip(1), true);
+                exteriorFigure.Segments.Add(exteriorSegment);
+            }
+            pathGeometry.Figures.Add(exteriorFigure);
+            
+            // 내부 링(홀) 추가
+            if (poly.InteriorRings != null && poly.InteriorRings.Count > 0)
+            {
+                foreach (var hole in poly.InteriorRings)
+                {
+                    if (hole?.Coordinates == null || hole.Coordinates.Length < 3) continue;
+                    
+                    var holePoints = context.ConvertToScreenPoints(hole.Coordinates);
+                    if (holePoints == null || holePoints.Length < 3) continue;
+                    
+                    var holeFigure = new PathFigure
+                    {
+                        StartPoint = holePoints[0],
+                        IsClosed = true,
+                        IsFilled = true
+                    };
+                    
+                    if (holePoints.Length > 1)
+                    {
+                        var holeSegment = new PolyLineSegment(holePoints.Skip(1), true);
+                        holeFigure.Segments.Add(holeSegment);
+                    }
+                    pathGeometry.Figures.Add(holeFigure);
+                }
+            }
         }
-        return group.Children.Count > 0 ? group : null;
+        
+        if (pathGeometry.Figures.Count == 0) return null;
+        
+        pathGeometry.Freeze();
+        return pathGeometry;
     }
 
     /// <summary>
@@ -328,13 +674,13 @@ public class VectorRenderer : IVectorRenderer
     /// <inheritdoc/>
     public void RenderFeature(Data.IFeature feature, RenderContext context)
     {
-        RenderFeature(feature, context, LevelOfDetail.CalculateLODLevel(context.Zoom));
+        RenderFeature(feature, context, LodUtils.CalculateLODLevel(context.Zoom));
     }
     
     /// <summary>
     /// LOD를 고려한 피처 렌더링
     /// </summary>
-    public void RenderFeature(Data.IFeature feature, RenderContext context, LevelOfDetail.LODLevel lodLevel)
+    public void RenderFeature(Data.IFeature feature, RenderContext context, LodUtils.LODLevel lodLevel)
     {
         if (feature?.Geometry == null || context?.DrawingContext == null) return;
 
@@ -358,9 +704,151 @@ public class VectorRenderer : IVectorRenderer
     }
     
     /// <summary>
+    /// 레이어 스타일을 사용하여 빠른 지오메트리 렌더링 (LOD 체크 없음)
+    /// </summary>
+    private void RenderGeometryWithLayerStyleFast(Geometry.IGeometry geometry, RenderContext context)
+    {
+        if (geometry == null || context?.DrawingContext == null || context.LayerStyle == null) return;
+
+        var layerStyle = context.LayerStyle;
+
+        // 캐시된 Brush/Pen 사용 (투명도 적용)
+        var fillColor = Color.FromArgb(
+            (byte)(layerStyle.FillColor.A * layerStyle.Opacity),
+            layerStyle.FillColor.R,
+            layerStyle.FillColor.G,
+            layerStyle.FillColor.B);
+
+        var strokeColor = Color.FromArgb(
+            (byte)(layerStyle.StrokeColor.A * layerStyle.Opacity),
+            layerStyle.StrokeColor.R,
+            layerStyle.StrokeColor.G,
+            layerStyle.StrokeColor.B);
+
+        switch (geometry)
+        {
+            case Geometry.Point point:
+                RenderPointFast(point, context, fillColor, strokeColor, layerStyle);
+                break;
+
+            case Geometry.LineString lineString:
+                RenderLineStringFast(lineString, context, strokeColor, layerStyle);
+                break;
+
+            case Geometry.Polygon polygon:
+                RenderPolygonFast(polygon, context, fillColor, strokeColor, layerStyle);
+                break;
+
+            case Geometry.MultiPoint multiPoint:
+                foreach (var pt in multiPoint.Geometries)
+                    RenderPointFast(pt, context, fillColor, strokeColor, layerStyle);
+                break;
+
+            case Geometry.MultiLineString multiLineString:
+                foreach (var line in multiLineString.Geometries)
+                    RenderLineStringFast(line, context, strokeColor, layerStyle);
+                break;
+
+            case Geometry.MultiPolygon multiPolygon:
+                foreach (var poly in multiPolygon.Geometries)
+                    RenderPolygonFast(poly, context, fillColor, strokeColor, layerStyle);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 빠른 포인트 렌더링
+    /// </summary>
+    private void RenderPointFast(Geometry.Point point, RenderContext context, Color fillColor, Color strokeColor, LayerRenderStyle layerStyle)
+    {
+        var screenPoint = context.FastMapToScreen(point.Coordinate.X, point.Coordinate.Y);
+        var brush = GetCachedBrush(fillColor);
+        var pen = layerStyle.StrokeWidth > 0 ? GetCachedPen(strokeColor, layerStyle.StrokeWidth) : null;
+        var halfSize = layerStyle.PointSize / 2;
+
+        // 기본 원 렌더링 (심볼 타입 무시 - 성능 우선)
+        context.DrawingContext.DrawEllipse(brush, pen, screenPoint, halfSize, halfSize);
+    }
+
+    /// <summary>
+    /// 빠른 라인 렌더링
+    /// </summary>
+    private void RenderLineStringFast(Geometry.LineString lineString, RenderContext context, Color strokeColor, LayerRenderStyle layerStyle)
+    {
+        if (lineString.Coordinates == null || lineString.Coordinates.Length < 2) return;
+
+        var pen = GetCachedDashedPen(strokeColor, layerStyle.StrokeWidth, layerStyle.DashPattern);
+
+        // StreamGeometry로 효율적 렌더링
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            var c = lineString.Coordinates[0];
+            ctx.BeginFigure(context.FastMapToScreen(c.X, c.Y), false, false);
+
+            for (int i = 1; i < lineString.Coordinates.Length; i++)
+            {
+                c = lineString.Coordinates[i];
+                ctx.LineTo(context.FastMapToScreen(c.X, c.Y), true, false);
+            }
+        }
+        geometry.Freeze();
+        context.DrawingContext.DrawGeometry(null, pen, geometry);
+    }
+
+    /// <summary>
+    /// 빠른 폴리곤 렌더링
+    /// </summary>
+    private void RenderPolygonFast(Geometry.Polygon polygon, RenderContext context, Color fillColor, Color strokeColor, LayerRenderStyle layerStyle)
+    {
+        if (polygon.ExteriorRing?.Coordinates == null || polygon.ExteriorRing.Coordinates.Length < 3) return;
+
+        var brush = layerStyle.EnableFill ? GetCachedBrush(fillColor) : null;
+        var pen = layerStyle.EnableStroke && layerStyle.StrokeWidth > 0 ? GetCachedPen(strokeColor, layerStyle.StrokeWidth) : null;
+
+        // StreamGeometry로 효율적 렌더링
+        var geometry = new StreamGeometry();
+        geometry.FillRule = FillRule.EvenOdd;
+
+        using (var ctx = geometry.Open())
+        {
+            // 외부 링
+            var exteriorCoords = polygon.ExteriorRing.Coordinates;
+            var c = exteriorCoords[0];
+            ctx.BeginFigure(context.FastMapToScreen(c.X, c.Y), true, true);
+
+            for (int i = 1; i < exteriorCoords.Length; i++)
+            {
+                c = exteriorCoords[i];
+                ctx.LineTo(context.FastMapToScreen(c.X, c.Y), true, false);
+            }
+
+            // 내부 링 (홀)
+            if (polygon.InteriorRings != null)
+            {
+                foreach (var hole in polygon.InteriorRings)
+                {
+                    if (hole?.Coordinates == null || hole.Coordinates.Length < 3) continue;
+
+                    c = hole.Coordinates[0];
+                    ctx.BeginFigure(context.FastMapToScreen(c.X, c.Y), true, true);
+
+                    for (int i = 1; i < hole.Coordinates.Length; i++)
+                    {
+                        c = hole.Coordinates[i];
+                        ctx.LineTo(context.FastMapToScreen(c.X, c.Y), true, false);
+                    }
+                }
+            }
+        }
+        geometry.Freeze();
+        context.DrawingContext.DrawGeometry(brush, pen, geometry);
+    }
+
+    /// <summary>
     /// 레이어 스타일을 사용하여 지오메트리 렌더링
     /// </summary>
-    private void RenderGeometryWithLayerStyle(Geometry.IGeometry geometry, RenderContext context, LevelOfDetail.LODLevel lodLevel)
+    private void RenderGeometryWithLayerStyle(Geometry.IGeometry geometry, RenderContext context, LodUtils.LODLevel lodLevel)
     {
         if (geometry == null || context?.DrawingContext == null || context.LayerStyle == null) return;
         
@@ -415,9 +903,10 @@ public class VectorRenderer : IVectorRenderer
     /// </summary>
     private void RenderPointWithStyle(Geometry.Point point, RenderContext context, Color fillColor, Color strokeColor, double size, double strokeWidth, PointSymbolType symbolType)
     {
-        var screenPoint = context.MapToScreen(point.Coordinate);
-        var brush = new SolidColorBrush(fillColor);
-        var pen = strokeWidth > 0 ? new Pen(new SolidColorBrush(strokeColor), strokeWidth) : null;
+        // 성능 최적화: FastMapToScreen 사용
+        var screenPoint = context.FastMapToScreen(point.Coordinate.X, point.Coordinate.Y);
+        var brush = GetCachedBrush(fillColor);
+        var pen = strokeWidth > 0 ? GetCachedPen(strokeColor, strokeWidth) : null;
         var halfSize = size / 2;
         
         switch (symbolType)
@@ -500,26 +989,23 @@ public class VectorRenderer : IVectorRenderer
     {
         if (lineString.Coordinates == null || lineString.Coordinates.Length < 2) return;
         
-        var pen = new Pen(new SolidColorBrush(strokeColor), strokeWidth);
-        if (dashPattern != null && dashPattern.Length > 0)
-        {
-            pen.DashStyle = new DashStyle(dashPattern, 0);
-        }
-        pen.StartLineCap = PenLineCap.Round;
-        pen.EndLineCap = PenLineCap.Round;
-        pen.LineJoin = PenLineJoin.Round;
+        // 캐시된 Pen 사용
+        var pen = GetCachedDashedPen(strokeColor, strokeWidth, dashPattern);
         
         var geometry = new StreamGeometry();
         using (var ctx = geometry.Open())
         {
-            var firstPoint = context.MapToScreen(lineString.Coordinates[0]);
-            ctx.BeginFigure(firstPoint, false, false);
+            // 성능 최적화: FastMapToScreen 사용
+            var c = lineString.Coordinates[0];
+            ctx.BeginFigure(context.FastMapToScreen(c.X, c.Y), false, false);
             
             for (int i = 1; i < lineString.Coordinates.Length; i++)
             {
-                ctx.LineTo(context.MapToScreen(lineString.Coordinates[i]), true, false);
+                c = lineString.Coordinates[i];
+                ctx.LineTo(context.FastMapToScreen(c.X, c.Y), true, false);
             }
         }
+        geometry.Freeze(); // Freeze로 성능 향상
         
         context.DrawingContext.DrawGeometry(null, pen, geometry);
     }
@@ -531,54 +1017,70 @@ public class VectorRenderer : IVectorRenderer
     {
         if (polygon.ExteriorRing == null || polygon.ExteriorRing.Coordinates == null || polygon.ExteriorRing.Coordinates.Length < 3) return;
         
-        var brush = enableFill ? new SolidColorBrush(fillColor) : null;
-        var pen = enableStroke && strokeWidth > 0 ? new Pen(new SolidColorBrush(strokeColor), strokeWidth) : null;
+        // 캐시된 Brush/Pen 사용
+        var brush = enableFill ? GetCachedBrush(fillColor) : null;
+        var pen = enableStroke && strokeWidth > 0 ? GetCachedPen(strokeColor, strokeWidth) : null;
         
-        var geometry = new StreamGeometry();
-        using (var ctx = geometry.Open())
+        // PathGeometry를 사용하여 홀 처리를 명확하게 함
+        var pathGeometry = new PathGeometry();
+        pathGeometry.FillRule = FillRule.EvenOdd;
+        
+        // 외부 링 Figure 생성 - 성능 최적화: FastMapToScreen 사용
+        var exteriorCoords = polygon.ExteriorRing.Coordinates;
+        var c = exteriorCoords[0];
+        var exteriorFigure = new PathFigure
         {
-            // 외부 링
-            var exteriorCoords = polygon.ExteriorRing.Coordinates;
-            var firstPoint = context.MapToScreen(exteriorCoords[0]);
-            ctx.BeginFigure(firstPoint, true, true);
-            
-            for (int i = 1; i < exteriorCoords.Length; i++)
+            StartPoint = context.FastMapToScreen(c.X, c.Y),
+            IsClosed = true,
+            IsFilled = true
+        };
+        
+        // 외부 링의 나머지 점들 추가
+        for (int i = 1; i < exteriorCoords.Length; i++)
+        {
+            c = exteriorCoords[i];
+            exteriorFigure.Segments.Add(new LineSegment(context.FastMapToScreen(c.X, c.Y), true));
+        }
+        pathGeometry.Figures.Add(exteriorFigure);
+        
+        // 내부 링 (홀) - 각 홀은 별도의 Figure로 추가
+        if (polygon.InteriorRings != null && polygon.InteriorRings.Count > 0)
+        {
+            foreach (var hole in polygon.InteriorRings)
             {
-                ctx.LineTo(context.MapToScreen(exteriorCoords[i]), true, false);
-            }
-            
-            // 내부 링 (홀)
-            if (polygon.InteriorRings != null)
-            {
-                foreach (var hole in polygon.InteriorRings)
+                if (hole?.Coordinates == null || hole.Coordinates.Length < 3) continue;
+                
+                c = hole.Coordinates[0];
+                var holeFigure = new PathFigure
                 {
-                    if (hole?.Coordinates == null || hole.Coordinates.Length < 3) continue;
-                    
-                    var holeFirst = context.MapToScreen(hole.Coordinates[0]);
-                    ctx.BeginFigure(holeFirst, true, true);
-                    
-                    for (int i = 1; i < hole.Coordinates.Length; i++)
-                    {
-                        ctx.LineTo(context.MapToScreen(hole.Coordinates[i]), true, false);
-                    }
+                    StartPoint = context.FastMapToScreen(c.X, c.Y),
+                    IsClosed = true,
+                    IsFilled = true  // EvenOdd에서는 true여도 홀로 처리됨
+                };
+                
+                for (int i = 1; i < hole.Coordinates.Length; i++)
+                {
+                    c = hole.Coordinates[i];
+                    holeFigure.Segments.Add(new LineSegment(context.FastMapToScreen(c.X, c.Y), true));
                 }
+                pathGeometry.Figures.Add(holeFigure);
             }
         }
         
-        geometry.FillRule = FillRule.EvenOdd;
-        context.DrawingContext.DrawGeometry(brush, pen, geometry);
+        pathGeometry.Freeze(); // Freeze로 성능 향상
+        context.DrawingContext.DrawGeometry(brush, pen, pathGeometry);
     }
 
     /// <inheritdoc/>
     public void RenderGeometry(Geometry.IGeometry geometry, RenderContext context, Styling.IStyle? style = null)
     {
-        RenderGeometry(geometry, context, style, LevelOfDetail.CalculateLODLevel(context.Zoom));
+        RenderGeometry(geometry, context, style, LodUtils.CalculateLODLevel(context.Zoom));
     }
     
     /// <summary>
     /// LOD를 고려한 지오메트리 렌더링
     /// </summary>
-    public void RenderGeometry(Geometry.IGeometry geometry, RenderContext context, Styling.IStyle? style, LevelOfDetail.LODLevel lodLevel)
+    public void RenderGeometry(Geometry.IGeometry geometry, RenderContext context, Styling.IStyle? style, LodUtils.LODLevel lodLevel)
     {
         if (geometry == null || context?.DrawingContext == null) return;
 
@@ -623,13 +1125,13 @@ public class VectorRenderer : IVectorRenderer
     /// <inheritdoc/>
     public void RenderPoint(Geometry.Point point, RenderContext context, Styling.IPointStyle? style = null)
     {
-        RenderPoint(point, context, style, LevelOfDetail.CalculateLODLevel(context.Zoom));
+        RenderPoint(point, context, style, LodUtils.CalculateLODLevel(context.Zoom));
     }
     
     /// <summary>
     /// LOD를 고려한 포인트 렌더링
     /// </summary>
-    public void RenderPoint(Geometry.Point point, RenderContext context, Styling.IPointStyle? style, LevelOfDetail.LODLevel lodLevel)
+    public void RenderPoint(Geometry.Point point, RenderContext context, Styling.IPointStyle? style, LodUtils.LODLevel lodLevel)
     {
         if (point?.Coordinate == null || context?.DrawingContext == null) return;
 
@@ -637,7 +1139,7 @@ public class VectorRenderer : IVectorRenderer
         if (!IsStyleVisible(style, context.Zoom)) return;
 
         // LOD에 따른 심볼 렌더링 여부 확인
-        if (!LevelOfDetail.ShouldRenderSymbol(lodLevel, style.Size)) return;
+        if (!LodUtils.ShouldRenderSymbol(lodLevel, style.Size)) return;
 
         var screenPoint = context.MapToScreen(point.Coordinate);
         
@@ -648,7 +1150,7 @@ public class VectorRenderer : IVectorRenderer
         var pen = style.StrokeWidth > 0 ? new Pen(new SolidColorBrush(style.Stroke), style.StrokeWidth) : null;
 
         // LOD에 따른 간소화된 렌더링
-        var effectiveShape = lodLevel >= LevelOfDetail.LODLevel.Medium ? Styling.PointShape.Circle : style.Shape;
+        var effectiveShape = lodLevel >= LodUtils.LODLevel.Medium ? Styling.PointShape.Circle : style.Shape;
 
         switch (effectiveShape)
         {
@@ -683,13 +1185,13 @@ public class VectorRenderer : IVectorRenderer
     /// <inheritdoc/>
     public void RenderLineString(Geometry.LineString lineString, RenderContext context, Styling.ILineStyle? style = null)
     {
-        RenderLineString(lineString, context, style, LevelOfDetail.CalculateLODLevel(context.Zoom));
+        RenderLineString(lineString, context, style, LodUtils.CalculateLODLevel(context.Zoom));
     }
     
     /// <summary>
     /// LOD를 고려한 라인스트링 렌더링
     /// </summary>
-    public void RenderLineString(Geometry.LineString lineString, RenderContext context, Styling.ILineStyle? style, LevelOfDetail.LODLevel lodLevel)
+    public void RenderLineString(Geometry.LineString lineString, RenderContext context, Styling.ILineStyle? style, LodUtils.LODLevel lodLevel)
     {
         if (lineString?.Coordinates == null || lineString.Coordinates.Length < 2 || 
             context?.DrawingContext == null) return;
@@ -705,9 +1207,9 @@ public class VectorRenderer : IVectorRenderer
             var screenPoints = context.ConvertToScreenPoints(coordinates);
             var totalLength = CalculateLineLength(screenPoints);
             
-            if (LevelOfDetail.ShouldSimplifyLine(lodLevel, totalLength, coordinates.Length))
+            if (LodUtils.ShouldSimplifyLine(lodLevel, totalLength, coordinates.Length))
             {
-                var tolerance = LevelOfDetail.GetSimplificationTolerance(lodLevel, context.Resolution);
+                var tolerance = LodUtils.GetSimplificationTolerance(lodLevel, context.Resolution);
                 coordinates = SimplifyLineString(coordinates, tolerance);
             }
         }
@@ -730,13 +1232,13 @@ public class VectorRenderer : IVectorRenderer
     /// <inheritdoc/>
     public void RenderPolygon(Geometry.Polygon polygon, RenderContext context, Styling.IPolygonStyle? style = null)
     {
-        RenderPolygon(polygon, context, style, LevelOfDetail.CalculateLODLevel(context.Zoom));
+        RenderPolygon(polygon, context, style, LodUtils.CalculateLODLevel(context.Zoom));
     }
     
     /// <summary>
     /// LOD를 고려한 폴리곤 렌더링
     /// </summary>
-    public void RenderPolygon(Geometry.Polygon polygon, RenderContext context, Styling.IPolygonStyle? style, LevelOfDetail.LODLevel lodLevel)
+    public void RenderPolygon(Geometry.Polygon polygon, RenderContext context, Styling.IPolygonStyle? style, LodUtils.LODLevel lodLevel)
     {
         if (polygon?.ExteriorRing?.Coordinates == null || 
             polygon.ExteriorRing.Coordinates.Length < 3 ||
@@ -750,7 +1252,7 @@ public class VectorRenderer : IVectorRenderer
         // LOD에 따른 폴리곤 단순화
         if (exteriorCoords.Length > 3)
         {
-            var tolerance = LevelOfDetail.GetSimplificationTolerance(lodLevel, context.Resolution);
+            var tolerance = LodUtils.GetSimplificationTolerance(lodLevel, context.Resolution);
             if (tolerance > 0)
             {
                 exteriorCoords = SimplifyLineString(exteriorCoords, tolerance);
@@ -778,7 +1280,7 @@ public class VectorRenderer : IVectorRenderer
         }
 
         // 구멍 처리 (높은 LOD에서만)
-        if (lodLevel <= LevelOfDetail.LODLevel.High && polygon.InteriorRings != null)
+        if (lodLevel <= LodUtils.LODLevel.High && polygon.InteriorRings != null)
         {
             foreach (var hole in polygon.InteriorRings)
             {
@@ -787,7 +1289,7 @@ public class VectorRenderer : IVectorRenderer
                     var holeCoords = hole.Coordinates;
                     
                     // 구멍도 단순화
-                    var tolerance = LevelOfDetail.GetSimplificationTolerance(lodLevel, context.Resolution);
+                    var tolerance = LodUtils.GetSimplificationTolerance(lodLevel, context.Resolution);
                     if (tolerance > 0 && holeCoords.Length > 3)
                     {
                         holeCoords = SimplifyLineString(holeCoords, tolerance);
@@ -1257,5 +1759,509 @@ public class VectorRenderer : IVectorRenderer
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
+    #endregion
+    
+    #region 라벨 렌더링
+    
+    /// <summary>
+    /// 피처들의 라벨 렌더링
+    /// </summary>
+    public void RenderLabels(IEnumerable<Data.IFeature> features, RenderContext context, Styling.ILabelStyle labelStyle)
+    {
+        if (features == null || context?.DrawingContext == null || labelStyle == null) return;
+        if (string.IsNullOrEmpty(labelStyle.LabelField)) return;
+        if (!labelStyle.IsVisible) return;
+        
+        // 줌 레벨 체크
+        if (context.Zoom < labelStyle.MinZoom || context.Zoom > labelStyle.MaxZoom) return;
+        
+        var featureList = features.ToList();
+        if (!featureList.Any()) return;
+        
+        // 라벨 충돌 감지를 위한 배치된 라벨 영역 목록
+        var placedLabelBounds = new List<Rect>();
+        
+        // 우선순위에 따라 정렬 (높은 우선순위 먼저)
+        var sortedFeatures = featureList
+            .OrderByDescending(f => labelStyle.Priority)
+            .ToList();
+        
+        foreach (var feature in sortedFeatures)
+        {
+            try
+            {
+                if (feature.Geometry == null) continue;
+                
+                // 뷰포트 컬링
+                if (!context.IsVisible(feature.Geometry)) continue;
+                
+                // 라벨 텍스트 가져오기
+                var labelText = GetLabelText(feature, labelStyle.LabelField);
+                if (string.IsNullOrWhiteSpace(labelText)) continue;
+                
+                // 라벨 위치 계산
+                var labelPosition = CalculateLabelPosition(feature.Geometry, context, labelStyle);
+                if (labelPosition == null) continue;
+                
+                // 라벨 크기 계산
+                var labelBounds = CalculateLabelBounds(labelText, labelPosition.Value, labelStyle);
+                
+                // 충돌 감지 (AllowOverlap이 false인 경우)
+                if (!labelStyle.AllowOverlap)
+                {
+                    if (IsLabelOverlapping(labelBounds, placedLabelBounds))
+                        continue;
+                }
+                
+                // 라벨 렌더링
+                RenderLabel(context.DrawingContext, labelText, labelPosition.Value, labelStyle);
+                
+                // 배치된 라벨 영역 추가
+                placedLabelBounds.Add(labelBounds);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Label rendering error: {ex.Message}");
+            }
+        }
+    }
+    
+    /// <summary>
+    /// 단일 피처의 라벨 렌더링
+    /// </summary>
+    public void RenderFeatureLabel(Data.IFeature feature, RenderContext context, Styling.ILabelStyle labelStyle)
+    {
+        if (feature?.Geometry == null || context?.DrawingContext == null || labelStyle == null) return;
+        if (string.IsNullOrEmpty(labelStyle.LabelField)) return;
+        
+        var labelText = GetLabelText(feature, labelStyle.LabelField);
+        if (string.IsNullOrWhiteSpace(labelText)) return;
+        
+        var labelPosition = CalculateLabelPosition(feature.Geometry, context, labelStyle);
+        if (labelPosition == null) return;
+        
+        RenderLabel(context.DrawingContext, labelText, labelPosition.Value, labelStyle);
+    }
+    
+    /// <summary>
+    /// 피처에서 라벨 텍스트 가져오기
+    /// </summary>
+    private string? GetLabelText(Data.IFeature feature, string fieldName)
+    {
+        if (feature.Attributes == null) return null;
+        
+        // 인덱서를 통해 속성값 가져오기
+        if (!feature.Attributes.Exists(fieldName)) return null;
+        
+        var value = feature.Attributes[fieldName];
+        return value?.ToString();
+    }
+    
+    /// <summary>
+    /// 지오메트리 타입에 따른 라벨 위치 계산
+    /// </summary>
+    private Point? CalculateLabelPosition(Geometry.IGeometry geometry, RenderContext context, Styling.ILabelStyle labelStyle)
+    {
+        Geometry.ICoordinate? centroid = null;
+        
+        switch (geometry)
+        {
+            case Geometry.Point point:
+                centroid = point.Coordinate;
+                break;
+                
+            case Geometry.LineString lineString:
+                centroid = CalculateLineCentroid(lineString);
+                break;
+                
+            case Geometry.Polygon polygon:
+                centroid = CalculatePolygonCentroid(polygon);
+                break;
+                
+            case Geometry.MultiPoint multiPoint:
+                centroid = CalculateMultiPointCentroid(multiPoint);
+                break;
+                
+            case Geometry.MultiLineString multiLineString:
+                centroid = CalculateMultiLineStringCentroid(multiLineString);
+                break;
+                
+            case Geometry.MultiPolygon multiPolygon:
+                centroid = CalculateMultiPolygonCentroid(multiPolygon);
+                break;
+                
+            default:
+                if (geometry.Envelope != null)
+                {
+                    centroid = new Geometry.Coordinate(
+                        (geometry.Envelope.MinX + geometry.Envelope.MaxX) / 2,
+                        (geometry.Envelope.MinY + geometry.Envelope.MaxY) / 2);
+                }
+                break;
+        }
+        
+        if (centroid == null) return null;
+        
+        // 화면 좌표로 변환
+        var screenPoint = context.MapToScreen(centroid);
+        
+        // 오프셋 적용
+        screenPoint.X += labelStyle.OffsetX;
+        screenPoint.Y += labelStyle.OffsetY;
+        
+        // 배치 위치에 따른 조정
+        // (실제 조정은 RenderLabel에서 텍스트 크기를 알고 난 후 수행)
+        
+        return screenPoint;
+    }
+    
+    /// <summary>
+    /// 라인의 중심점 계산
+    /// </summary>
+    private Geometry.ICoordinate? CalculateLineCentroid(Geometry.LineString lineString)
+    {
+        if (lineString.Coordinates == null || lineString.Coordinates.Length == 0)
+            return null;
+        
+        // 라인의 중간 지점 찾기
+        double totalLength = 0;
+        var lengths = new double[lineString.Coordinates.Length - 1];
+        
+        for (int i = 0; i < lineString.Coordinates.Length - 1; i++)
+        {
+            var dx = lineString.Coordinates[i + 1].X - lineString.Coordinates[i].X;
+            var dy = lineString.Coordinates[i + 1].Y - lineString.Coordinates[i].Y;
+            lengths[i] = Math.Sqrt(dx * dx + dy * dy);
+            totalLength += lengths[i];
+        }
+        
+        var halfLength = totalLength / 2;
+        double accumulatedLength = 0;
+        
+        for (int i = 0; i < lengths.Length; i++)
+        {
+            if (accumulatedLength + lengths[i] >= halfLength)
+            {
+                var ratio = (halfLength - accumulatedLength) / lengths[i];
+                var x = lineString.Coordinates[i].X + ratio * (lineString.Coordinates[i + 1].X - lineString.Coordinates[i].X);
+                var y = lineString.Coordinates[i].Y + ratio * (lineString.Coordinates[i + 1].Y - lineString.Coordinates[i].Y);
+                return new Geometry.Coordinate(x, y);
+            }
+            accumulatedLength += lengths[i];
+        }
+        
+        // 폴백: 중간 인덱스의 좌표
+        var midIndex = lineString.Coordinates.Length / 2;
+        return lineString.Coordinates[midIndex];
+    }
+    
+    /// <summary>
+    /// 폴리곤의 중심점 계산 (Centroid)
+    /// </summary>
+    private Geometry.ICoordinate? CalculatePolygonCentroid(Geometry.Polygon polygon)
+    {
+        if (polygon.ExteriorRing?.Coordinates == null || polygon.ExteriorRing.Coordinates.Length < 3)
+            return null;
+        
+        var coords = polygon.ExteriorRing.Coordinates;
+        double signedArea = 0;
+        double cx = 0;
+        double cy = 0;
+        
+        for (int i = 0; i < coords.Length - 1; i++)
+        {
+            var x0 = coords[i].X;
+            var y0 = coords[i].Y;
+            var x1 = coords[i + 1].X;
+            var y1 = coords[i + 1].Y;
+            
+            var a = x0 * y1 - x1 * y0;
+            signedArea += a;
+            cx += (x0 + x1) * a;
+            cy += (y0 + y1) * a;
+        }
+        
+        signedArea *= 0.5;
+        
+        if (Math.Abs(signedArea) < 1e-10)
+        {
+            // 면적이 너무 작으면 바운딩 박스 중심 사용
+            return new Geometry.Coordinate(
+                (polygon.Envelope?.MinX ?? 0 + polygon.Envelope?.MaxX ?? 0) / 2,
+                (polygon.Envelope?.MinY ?? 0 + polygon.Envelope?.MaxY ?? 0) / 2);
+        }
+        
+        cx /= (6 * signedArea);
+        cy /= (6 * signedArea);
+        
+        return new Geometry.Coordinate(cx, cy);
+    }
+    
+    /// <summary>
+    /// MultiPoint의 중심점 계산
+    /// </summary>
+    private Geometry.ICoordinate? CalculateMultiPointCentroid(Geometry.MultiPoint multiPoint)
+    {
+        if (multiPoint.Geometries == null || !multiPoint.Geometries.Any())
+            return null;
+        
+        double sumX = 0, sumY = 0;
+        int count = 0;
+        
+        foreach (var point in multiPoint.Geometries)
+        {
+            if (point.Coordinate != null)
+            {
+                sumX += point.Coordinate.X;
+                sumY += point.Coordinate.Y;
+                count++;
+            }
+        }
+        
+        if (count == 0) return null;
+        return new Geometry.Coordinate(sumX / count, sumY / count);
+    }
+    
+    /// <summary>
+    /// MultiLineString의 중심점 계산
+    /// </summary>
+    private Geometry.ICoordinate? CalculateMultiLineStringCentroid(Geometry.MultiLineString multiLineString)
+    {
+        if (multiLineString.Geometries == null || !multiLineString.Geometries.Any())
+            return null;
+        
+        // 가장 긴 라인의 중심점 사용
+        Geometry.LineString? longestLine = null;
+        double maxLength = 0;
+        
+        foreach (var line in multiLineString.Geometries)
+        {
+            if (line.Coordinates == null || line.Coordinates.Length < 2) continue;
+            
+            double length = 0;
+            for (int i = 0; i < line.Coordinates.Length - 1; i++)
+            {
+                var dx = line.Coordinates[i + 1].X - line.Coordinates[i].X;
+                var dy = line.Coordinates[i + 1].Y - line.Coordinates[i].Y;
+                length += Math.Sqrt(dx * dx + dy * dy);
+            }
+            
+            if (length > maxLength)
+            {
+                maxLength = length;
+                longestLine = line;
+            }
+        }
+        
+        return longestLine != null ? CalculateLineCentroid(longestLine) : null;
+    }
+    
+    /// <summary>
+    /// MultiPolygon의 중심점 계산
+    /// </summary>
+    private Geometry.ICoordinate? CalculateMultiPolygonCentroid(Geometry.MultiPolygon multiPolygon)
+    {
+        if (multiPolygon.Geometries == null || !multiPolygon.Geometries.Any())
+            return null;
+        
+        // 가장 큰 폴리곤의 중심점 사용
+        Geometry.Polygon? largestPolygon = null;
+        double maxArea = 0;
+        
+        foreach (var polygon in multiPolygon.Geometries)
+        {
+            if (polygon.ExteriorRing?.Coordinates == null || polygon.ExteriorRing.Coordinates.Length < 3)
+                continue;
+            
+            var area = Math.Abs(CalculatePolygonArea(polygon));
+            if (area > maxArea)
+            {
+                maxArea = area;
+                largestPolygon = polygon;
+            }
+        }
+        
+        return largestPolygon != null ? CalculatePolygonCentroid(largestPolygon) : null;
+    }
+    
+    /// <summary>
+    /// 폴리곤 면적 계산 (Shoelace formula)
+    /// </summary>
+    private double CalculatePolygonArea(Geometry.Polygon polygon)
+    {
+        if (polygon.ExteriorRing?.Coordinates == null || polygon.ExteriorRing.Coordinates.Length < 3)
+            return 0;
+        
+        var coords = polygon.ExteriorRing.Coordinates;
+        double area = 0;
+        
+        for (int i = 0; i < coords.Length - 1; i++)
+        {
+            area += coords[i].X * coords[i + 1].Y;
+            area -= coords[i + 1].X * coords[i].Y;
+        }
+        
+        return area / 2;
+    }
+    
+    /// <summary>
+    /// 라벨 바운딩 박스 계산
+    /// </summary>
+    private Rect CalculateLabelBounds(string text, Point position, Styling.ILabelStyle labelStyle)
+    {
+        var formattedText = CreateFormattedText(text, labelStyle);
+        var width = formattedText.Width;
+        var height = formattedText.Height;
+        
+        // 배치 위치에 따른 바운딩 박스 조정
+        double x = position.X;
+        double y = position.Y;
+        
+        switch (labelStyle.Placement)
+        {
+            case Styling.LabelPlacement.Center:
+                x -= width / 2;
+                y -= height / 2;
+                break;
+            case Styling.LabelPlacement.Top:
+                x -= width / 2;
+                y -= height;
+                break;
+            case Styling.LabelPlacement.Bottom:
+                x -= width / 2;
+                break;
+            case Styling.LabelPlacement.Left:
+                x -= width;
+                y -= height / 2;
+                break;
+            case Styling.LabelPlacement.Right:
+                y -= height / 2;
+                break;
+            case Styling.LabelPlacement.TopLeft:
+                x -= width;
+                y -= height;
+                break;
+            case Styling.LabelPlacement.TopRight:
+                y -= height;
+                break;
+            case Styling.LabelPlacement.BottomLeft:
+                x -= width;
+                break;
+            case Styling.LabelPlacement.BottomRight:
+                // 기본 위치
+                break;
+        }
+        
+        // 헤일로 여백 추가
+        if (labelStyle.HaloEnabled)
+        {
+            var haloMargin = labelStyle.HaloWidth;
+            x -= haloMargin;
+            y -= haloMargin;
+            width += haloMargin * 2;
+            height += haloMargin * 2;
+        }
+        
+        return new Rect(x, y, width, height);
+    }
+    
+    /// <summary>
+    /// 라벨 충돌 감지
+    /// </summary>
+    private bool IsLabelOverlapping(Rect labelBounds, List<Rect> placedBounds)
+    {
+        foreach (var placed in placedBounds)
+        {
+            if (labelBounds.IntersectsWith(placed))
+                return true;
+        }
+        return false;
+    }
+    
+    /// <summary>
+    /// 라벨 렌더링
+    /// </summary>
+    private void RenderLabel(DrawingContext dc, string text, Point position, Styling.ILabelStyle labelStyle)
+    {
+        var formattedText = CreateFormattedText(text, labelStyle);
+        
+        // 배치 위치에 따른 좌표 조정
+        var drawPosition = AdjustPositionForPlacement(position, formattedText, labelStyle.Placement);
+        
+        // 회전 적용
+        if (Math.Abs(labelStyle.Rotation) > 0.01)
+        {
+            dc.PushTransform(new RotateTransform(labelStyle.Rotation, position.X, position.Y));
+        }
+        
+        // 헤일로 (외곽선) 렌더링
+        if (labelStyle.HaloEnabled && labelStyle.HaloWidth > 0)
+        {
+            var haloGeometry = formattedText.BuildGeometry(drawPosition);
+            var haloPen = new Pen(new SolidColorBrush(labelStyle.HaloColor), labelStyle.HaloWidth * 2)
+            {
+                LineJoin = PenLineJoin.Round,
+                StartLineCap = PenLineCap.Round,
+                EndLineCap = PenLineCap.Round
+            };
+            dc.DrawGeometry(null, haloPen, haloGeometry);
+        }
+        
+        // 텍스트 렌더링
+        dc.DrawText(formattedText, drawPosition);
+        
+        // 회전 복원
+        if (Math.Abs(labelStyle.Rotation) > 0.01)
+        {
+            dc.Pop();
+        }
+    }
+    
+    /// <summary>
+    /// FormattedText 생성
+    /// </summary>
+    private FormattedText CreateFormattedText(string text, Styling.ILabelStyle labelStyle)
+    {
+        var typeface = new Typeface(
+            labelStyle.FontFamily,
+            labelStyle.FontStyle,
+            labelStyle.FontWeight,
+            FontStretches.Normal);
+        
+        var formattedText = new FormattedText(
+            text,
+            System.Globalization.CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            labelStyle.FontSize,
+            new SolidColorBrush(labelStyle.FontColor),
+            VisualTreeHelper.GetDpi(new System.Windows.Controls.Control()).PixelsPerDip);
+        
+        return formattedText;
+    }
+    
+    /// <summary>
+    /// 배치 위치에 따른 좌표 조정
+    /// </summary>
+    private Point AdjustPositionForPlacement(Point position, FormattedText text, Styling.LabelPlacement placement)
+    {
+        var width = text.Width;
+        var height = text.Height;
+        
+        return placement switch
+        {
+            Styling.LabelPlacement.Center => new Point(position.X - width / 2, position.Y - height / 2),
+            Styling.LabelPlacement.Top => new Point(position.X - width / 2, position.Y - height),
+            Styling.LabelPlacement.Bottom => new Point(position.X - width / 2, position.Y),
+            Styling.LabelPlacement.Left => new Point(position.X - width, position.Y - height / 2),
+            Styling.LabelPlacement.Right => new Point(position.X, position.Y - height / 2),
+            Styling.LabelPlacement.TopLeft => new Point(position.X - width, position.Y - height),
+            Styling.LabelPlacement.TopRight => new Point(position.X, position.Y - height),
+            Styling.LabelPlacement.BottomLeft => new Point(position.X - width, position.Y),
+            Styling.LabelPlacement.BottomRight => new Point(position.X, position.Y),
+            _ => new Point(position.X - width / 2, position.Y - height / 2)
+        };
+    }
+    
     #endregion
 }

@@ -304,6 +304,82 @@ public partial class MainWindow : Window
         _viewModel.AttributePanelViewModel.SelectedLayer = layer;
         _viewModel.StatusMessage = $"'{layer.Name}' 속성 열기";
     }
+    
+    /// <summary>
+    /// 라벨 설정 다이얼로그 열기
+    /// </summary>
+    private void LabelSettings_Click(object sender, RoutedEventArgs e)
+    {
+        var layer = _viewModel.LayerPanelViewModel.SelectedLayer;
+        if (layer == null)
+        {
+            // 컨텍스트 메뉴에서 호출된 경우 해당 레이어 찾기
+            if (sender is System.Windows.Controls.MenuItem menuItem)
+            {
+                var contextMenu = menuItem.Parent as System.Windows.Controls.ContextMenu;
+                if (contextMenu?.PlacementTarget is System.Windows.Controls.Button button)
+                {
+                    layer = button.DataContext as LayerItemViewModel;
+                }
+            }
+        }
+        
+        if (layer == null)
+        {
+            MessageBox.Show("레이어를 선택해주세요.", "라벨 설정", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        
+        var dialog = new Views.Dialogs.LabelSettingsDialog(layer)
+        {
+            Owner = this
+        };
+        
+        if (dialog.ShowDialog() == true)
+        {
+            // 맵 새로고침
+            _viewModel.MapViewModel.RequestRefresh();
+            _viewModel.StatusMessage = $"'{layer.Name}' 라벨 설정 적용됨";
+        }
+    }
+    
+    /// <summary>
+    /// 레이어 스타일 설정 다이얼로그 열기
+    /// </summary>
+    private void LayerStyleSettings_Click(object sender, RoutedEventArgs e)
+    {
+        var layer = _viewModel.LayerPanelViewModel.SelectedLayer;
+        if (layer == null)
+        {
+            // 컨텍스트 메뉴에서 호출된 경우 해당 레이어 찾기
+            if (sender is System.Windows.Controls.MenuItem menuItem)
+            {
+                var contextMenu = menuItem.Parent as System.Windows.Controls.ContextMenu;
+                if (contextMenu?.PlacementTarget is System.Windows.Controls.Button button)
+                {
+                    layer = button.DataContext as LayerItemViewModel;
+                }
+            }
+        }
+        
+        if (layer == null)
+        {
+            MessageBox.Show("레이어를 선택해주세요.", "스타일 설정", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        
+        var dialog = new Views.Dialogs.LayerStyleDialog(layer)
+        {
+            Owner = this
+        };
+        
+        if (dialog.ShowDialog() == true)
+        {
+            // 맵 새로고침
+            _viewModel.MapViewModel.RequestRefresh();
+            _viewModel.StatusMessage = $"'{layer.Name}' 스타일 설정 적용됨";
+        }
+    }
 
     #endregion
     
@@ -355,6 +431,292 @@ public partial class MainWindow : Window
     {
         _viewModel.CurrentColorPalette = SpatialView.Core.Services.ColorPaletteService.ColorPalette.Grayscale;
         _viewModel.StatusMessage = "색상 팔레트: 회색조";
+    }
+    
+    private void SetPaletteNegative_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel.CurrentColorPalette = SpatialView.Core.Services.ColorPaletteService.ColorPalette.Negative;
+        _viewModel.StatusMessage = "색상 팔레트: 네거티브";
+    }
+    
+    #endregion
+    
+    #region 지도 도구 핸들러
+    
+    /// <summary>
+    /// 줌 윈도우 도구 클릭
+    /// </summary>
+    private void ZoomWindowTool_Click(object sender, RoutedEventArgs e)
+    {
+        System.Diagnostics.Debug.WriteLine("ZoomWindowTool_Click 호출됨");
+        _viewModel.MapViewModel.ActiveTool = Core.GisEngine.MapTool.ZoomWindow;
+        _viewModel.StatusMessage = "선택 영역 확대 - 드래그하여 영역을 선택하세요";
+        UpdateToolButtonStyles();
+    }
+    
+    /// <summary>
+    /// 피처 선택 도구 클릭
+    /// </summary>
+    private void SelectTool_Click(object sender, RoutedEventArgs e)
+    {
+        System.Diagnostics.Debug.WriteLine($"SelectTool_Click 호출됨, 이전 ActiveTool={_viewModel.MapViewModel.ActiveTool}");
+        _viewModel.MapViewModel.ActiveTool = Core.GisEngine.MapTool.Select;
+        System.Diagnostics.Debug.WriteLine($"SelectTool_Click 완료, 현재 ActiveTool={_viewModel.MapViewModel.ActiveTool}");
+        _viewModel.StatusMessage = "피처 선택 - 지도에서 피처를 클릭하세요";
+        UpdateToolButtonStyles();
+    }
+    
+    /// <summary>
+    /// 이동 도구 클릭
+    /// </summary>
+    private void PanTool_Click(object sender, RoutedEventArgs e)
+    {
+        System.Diagnostics.Debug.WriteLine("PanTool_Click 호출됨");
+        _viewModel.MapViewModel.ActiveTool = Core.GisEngine.MapTool.Pan;
+        _viewModel.StatusMessage = "이동 모드";
+        UpdateToolButtonStyles();
+    }
+    
+    /// <summary>
+    /// 도구 버튼 스타일 업데이트 (활성화 상태 표시)
+    /// </summary>
+    private void UpdateToolButtonStyles()
+    {
+        var activeTool = _viewModel.MapViewModel.ActiveTool;
+        var activeColor = new System.Windows.Media.SolidColorBrush(
+            System.Windows.Media.Color.FromArgb(60, 33, 150, 243)); // 반투명 파란색
+        var normalColor = System.Windows.Media.Brushes.Transparent;
+        
+        ZoomWindowToolButton.Background = activeTool == Core.GisEngine.MapTool.ZoomWindow ? activeColor : normalColor;
+        SelectToolButton.Background = activeTool == Core.GisEngine.MapTool.Select ? activeColor : normalColor;
+        PanToolButton.Background = activeTool == Core.GisEngine.MapTool.Pan ? activeColor : normalColor;
+        
+        System.Diagnostics.Debug.WriteLine($"UpdateToolButtonStyles: ActiveTool={activeTool}");
+    }
+    
+    #endregion
+    
+    #region 새 도구 핸들러
+    
+    private Views.Dialogs.MeasurementDialog? _measurementDialog;
+    
+    /// <summary>
+    /// 측정 도구 열기
+    /// </summary>
+    private void OpenMeasurementTool_Click(object sender, RoutedEventArgs e)
+    {
+        // 이미 열려있으면 포커스
+        if (_measurementDialog != null && _measurementDialog.IsVisible)
+        {
+            _measurementDialog.Activate();
+            return;
+        }
+        
+        var srid = _viewModel.MapViewModel.Map?.SRID ?? 4326;
+        _measurementDialog = new Views.Dialogs.MeasurementDialog(srid);
+        _measurementDialog.Owner = this;
+        
+        // 측정 이벤트 연결
+        _measurementDialog.MeasurementStarted += (isDistance) =>
+        {
+            _viewModel.StatusMessage = isDistance ? "거리 측정 모드 - 지도에서 클릭하세요" : "면적 측정 모드 - 지도에서 클릭하세요";
+            // 측정 도구 활성화
+            _viewModel.MapViewModel.ActiveTool = isDistance 
+                ? Core.GisEngine.MapTool.MeasureDistance 
+                : Core.GisEngine.MapTool.MeasureArea;
+        };
+        
+        _measurementDialog.MeasurementEnded += () =>
+        {
+            _viewModel.StatusMessage = "측정 완료";
+            _viewModel.MapViewModel.ActiveTool = Core.GisEngine.MapTool.Pan;
+            _measurementDialog = null;
+        };
+        
+        _measurementDialog.Closed += (s, args) =>
+        {
+            _viewModel.MapViewModel.ActiveTool = Core.GisEngine.MapTool.Pan;
+            _measurementDialog = null;
+            
+            // 측정 경로 초기화
+            var mapControl = FindVisualChild<Views.Controls.MapControl>(this);
+            mapControl?.ClearMeasurePath();
+        };
+        
+        _measurementDialog.Show();
+    }
+    
+    /// <summary>
+    /// 측정 다이얼로그에 포인트 추가 (MapControl에서 호출)
+    /// </summary>
+    public void AddMeasurementPoint(double x, double y)
+    {
+        _measurementDialog?.AddPoint(x, y);
+    }
+    
+    /// <summary>
+    /// 좌표계 변환 도구 열기
+    /// </summary>
+    private void OpenCoordinateTransform_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Views.Dialogs.CoordinateTransformDialog(_viewModel);
+        dialog.Owner = this;
+        dialog.ShowDialog();
+    }
+    
+    /// <summary>
+    /// 내보내기 도구 열기
+    /// </summary>
+    private void OpenExportDialog_Click(object sender, RoutedEventArgs e)
+    {
+        // MapControl에서 Canvas 가져오기
+        var mapControl = FindVisualChild<Views.Controls.MapControl>(this);
+        if (mapControl == null)
+        {
+            MessageBox.Show("지도 컨트롤을 찾을 수 없습니다.", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        
+        var canvas = FindVisualChild<System.Windows.Controls.Canvas>(mapControl);
+        if (canvas == null)
+        {
+            MessageBox.Show("지도 캔버스를 찾을 수 없습니다.", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        
+        var dialog = new Views.Dialogs.ExportDialog(canvas);
+        dialog.Owner = this;
+        dialog.ShowDialog();
+    }
+    
+    /// <summary>
+    /// 고급 필터 도구 열기
+    /// </summary>
+    private void OpenAdvancedFilter_Click(object sender, RoutedEventArgs e)
+    {
+        var attributeTable = _viewModel.AttributePanelViewModel.AttributeTable;
+        if (attributeTable == null)
+        {
+            MessageBox.Show("속성 테이블을 먼저 로드하세요.", "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        
+        var dialog = new Views.Dialogs.AdvancedFilterDialog(attributeTable);
+        dialog.Owner = this;
+        
+        dialog.FilterApplied += (filter) =>
+        {
+            _viewModel.StatusMessage = string.IsNullOrEmpty(filter) 
+                ? "필터 해제됨" 
+                : $"필터 적용됨: {dialog.FilteredCount}개 피처";
+        };
+        
+        dialog.Show();
+    }
+    
+    private Views.Dialogs.EditToolsDialog? _editToolsDialog;
+    
+    /// <summary>
+    /// 편집 도구 열기
+    /// </summary>
+    private void OpenEditTools_Click(object sender, RoutedEventArgs e)
+    {
+        // 이미 열려있으면 포커스
+        if (_editToolsDialog != null && _editToolsDialog.IsVisible)
+        {
+            _editToolsDialog.Activate();
+            return;
+        }
+        
+        var layers = _viewModel.LayerPanelViewModel.Layers.ToList();
+        if (layers.Count == 0)
+        {
+            MessageBox.Show("편집할 레이어가 없습니다.", "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        
+        _editToolsDialog = new Views.Dialogs.EditToolsDialog(layers);
+        _editToolsDialog.Owner = this;
+        
+        _editToolsDialog.EditModeChanged += (mode, geometryType) =>
+        {
+            _viewModel.StatusMessage = mode switch
+            {
+                Engine.Editing.EditMode.Create => $"{geometryType} 생성 모드 - 지도에서 클릭하세요",
+                Engine.Editing.EditMode.Modify => "수정 모드 - 피처를 클릭하세요",
+                Engine.Editing.EditMode.Delete => "삭제 모드 - 삭제할 피처를 클릭하세요",
+                _ => "편집 모드 해제"
+            };
+            
+            // 편집 모드에 따라 MapTool 변경
+            if (mode != Engine.Editing.EditMode.None)
+            {
+                _viewModel.MapViewModel.ActiveTool = Core.GisEngine.MapTool.Edit;
+            }
+            else
+            {
+                _viewModel.MapViewModel.ActiveTool = Core.GisEngine.MapTool.Pan;
+            }
+        };
+        
+        _editToolsDialog.EditCompleted += () =>
+        {
+            // 편집 경로 초기화
+            MapControlInstance?.ClearEditPath();
+            _viewModel.MapViewModel.RequestRefresh();
+        };
+        
+        _editToolsDialog.Closed += (s, args) =>
+        {
+            // 편집 경로 초기화
+            MapControlInstance?.ClearEditPath();
+            _viewModel.MapViewModel.ActiveTool = Core.GisEngine.MapTool.Pan;
+            _editToolsDialog = null;
+        };
+        
+        _editToolsDialog.Show();
+    }
+    
+    /// <summary>
+    /// 편집 다이얼로그에 포인트 추가 (MapControl에서 호출)
+    /// </summary>
+    public void AddEditPoint(double x, double y)
+    {
+        _editToolsDialog?.AddPoint(x, y);
+    }
+    
+    /// <summary>
+    /// 편집 완료 (MapControl에서 호출 - 더블클릭)
+    /// </summary>
+    public void CompleteEdit()
+    {
+        _editToolsDialog?.CompleteCreate();
+        // 편집 경로 초기화
+        MapControlInstance?.ClearEditPath();
+    }
+    
+    /// <summary>
+    /// MapControl 인스턴스 가져오기
+    /// </summary>
+    private Views.Controls.MapControl? MapControlInstance => 
+        FindVisualChild<Views.Controls.MapControl>(this);
+    
+    /// <summary>
+    /// VisualTree에서 자식 요소 찾기
+    /// </summary>
+    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T result)
+                return result;
+            
+            var descendant = FindVisualChild<T>(child);
+            if (descendant != null)
+                return descendant;
+        }
+        return null;
     }
     
     #endregion

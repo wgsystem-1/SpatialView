@@ -87,6 +87,13 @@ public class VectorLayer : ILayer
         }
     }
     
+    // 성능 최적화: 뷰포트별 캐시
+    private Envelope? _lastViewExtent;
+    private List<IFeature>? _viewportCache;
+    
+    // 빈 리스트 싱글톤 (메모리 절약)
+    private static readonly List<IFeature> _emptyFeatureList = new();
+    
     /// <inheritdoc/>
     public IEnumerable<IFeature> GetFeatures(Envelope? extent = null)
     {
@@ -96,16 +103,87 @@ public class VectorLayer : ILayer
             {
                 LoadFeatures();
             }
-            
+
+            Diagnostics.FileLogger.Log($"[VectorLayer.GetFeatures] Layer={Name}, extent={extent}, _featureCache.Count={_featureCache.Count}");
+
+            // 성능 최적화: 빈 캐시는 즉시 반환
+            if (_featureCache.Count == 0)
+            {
+                Diagnostics.FileLogger.Log($"[VectorLayer.GetFeatures] 피처 캐시가 비어있음 -> 빈 리스트 반환");
+                return _emptyFeatureList;
+            }
+
             if (extent == null)
             {
-                return _featureCache.ToList();
+                // 전체 피처 반환 - 캐시 직접 반환 (복사 없음)
+                Diagnostics.FileLogger.Log($"[VectorLayer.GetFeatures] extent=null -> 전체 피처 반환 ({_featureCache.Count}개)");
+                return _featureCache;
             }
-            
-            return _featureCache.Where(f => 
-                f.Geometry != null && 
-                f.Geometry.Envelope != null &&
-                f.Geometry.Envelope.Intersects(extent)).ToList();
+
+            // 뷰포트 캐시 확인 - 같은 뷰포트면 캐시 재사용
+            if (_viewportCache != null && _lastViewExtent != null &&
+                _lastViewExtent.MinX == extent.MinX && _lastViewExtent.MaxX == extent.MaxX &&
+                _lastViewExtent.MinY == extent.MinY && _lastViewExtent.MaxY == extent.MaxY)
+            {
+                Diagnostics.FileLogger.Log($"[VectorLayer.GetFeatures] 뷰포트 캐시 재사용 ({_viewportCache.Count}개)");
+                return _viewportCache;
+            }
+
+            // 새 뷰포트 - 필터링 수행
+            _lastViewExtent = new Envelope(extent);
+            _viewportCache = new List<IFeature>();
+
+            int intersectCount = 0;
+            int nullEnvelopeCount = 0;
+            int nullGeometryCount = 0;
+
+            foreach (var f in _featureCache)
+            {
+                if (f.Geometry == null)
+                {
+                    nullGeometryCount++;
+                    continue;
+                }
+
+                // Envelope가 없으면 포함 (안전판정) 후 로그
+                if (f.Geometry.Envelope == null)
+                {
+                    Diagnostics.FileLogger.Log($"[VectorLayer.GetFeatures] Envelope null 포함 처리 (FeatureId={f.Id})");
+                    _viewportCache.Add(f);
+                    nullEnvelopeCount++;
+                    continue;
+                }
+
+                // 디버그: 첫 번째 피처의 Envelope 출력
+                if (intersectCount == 0)
+                {
+                    Diagnostics.FileLogger.Log($"[VectorLayer.GetFeatures] 첫 피처 Envelope: MinX={f.Geometry.Envelope.MinX:F2}, MaxX={f.Geometry.Envelope.MaxX:F2}, MinY={f.Geometry.Envelope.MinY:F2}, MaxY={f.Geometry.Envelope.MaxY:F2}");
+                    Diagnostics.FileLogger.Log($"[VectorLayer.GetFeatures] 검색 Envelope: MinX={extent.MinX:F2}, MaxX={extent.MaxX:F2}, MinY={extent.MinY:F2}, MaxY={extent.MaxY:F2}");
+                }
+
+                if (f.Geometry.Envelope.Intersects(extent))
+                {
+                    _viewportCache.Add(f);
+                    intersectCount++;
+                }
+            }
+
+            Diagnostics.FileLogger.Log($"[VectorLayer.GetFeatures] 필터링 결과: {intersectCount}개 교차, {nullEnvelopeCount}개 null Envelope, {nullGeometryCount}개 null Geometry");
+            Diagnostics.FileLogger.Log($"[VectorLayer.GetFeatures] 반환 피처 수: {_viewportCache.Count}개");
+
+            return _viewportCache;
+        }
+    }
+    
+    /// <summary>
+    /// 뷰포트 캐시 무효화
+    /// </summary>
+    public void InvalidateViewportCache()
+    {
+        lock (_lockObject)
+        {
+            _viewportCache = null;
+            _lastViewExtent = null;
         }
     }
     
@@ -132,9 +210,12 @@ public class VectorLayer : ILayer
         {
             _featureCache.Add(feature);
             UpdateExtent();
+            // 뷰포트 캐시 무효화 - 새 피처가 화면에 표시되도록
+            _viewportCache = null;
+            _lastViewExtent = null;
         }
     }
-    
+
     /// <inheritdoc/>
     public void DeleteFeature(IFeature feature)
     {
@@ -145,10 +226,13 @@ public class VectorLayer : ILayer
             {
                 _featureCache.RemoveAt(existingIndex);
                 UpdateExtent();
+                // 뷰포트 캐시 무효화 - 삭제된 피처가 화면에서 사라지도록
+                _viewportCache = null;
+                _lastViewExtent = null;
             }
         }
     }
-    
+
     /// <inheritdoc/>
     public void UpdateFeature(IFeature feature)
     {
@@ -160,6 +244,9 @@ public class VectorLayer : ILayer
             {
                 _featureCache[existingIndex] = feature;
                 UpdateExtent();
+                // 뷰포트 캐시 무효화 - 수정된 피처가 화면에 반영되도록
+                _viewportCache = null;
+                _lastViewExtent = null;
             }
         }
     }
@@ -169,9 +256,18 @@ public class VectorLayer : ILayer
     {
         lock (_lockObject)
         {
-            _cacheValid = false;
-            _featureCache.Clear();
-            LoadFeatures();
+            if (DataSource != null && !string.IsNullOrEmpty(TableName))
+            {
+                _cacheValid = false;
+                _featureCache.Clear();
+                LoadFeatures();
+            }
+            else
+            {
+                // DataSource 없이 SetFeatures로 채운 경우: 피처는 유지, 뷰포트 캐시만 무효화
+                InvalidateViewportCache();
+                System.Diagnostics.Debug.WriteLine($"VectorLayer.Refresh: DataSource 없음, 피처 캐시 유지 (Count={_featureCache.Count})");
+            }
         }
     }
     
@@ -303,6 +399,16 @@ public class VectorLayer : ILayer
     
     /// <inheritdoc/>
     public Styling.IStyle? Style { get; set; }
+    
+    /// <summary>
+    /// 라벨 스타일
+    /// </summary>
+    public Styling.ILabelStyle? LabelStyle { get; set; }
+    
+    /// <summary>
+    /// 라벨 표시 여부
+    /// </summary>
+    public bool ShowLabels { get; set; } = false;
     
     /// <inheritdoc/>
     public Geometry.Envelope? GetExtent()

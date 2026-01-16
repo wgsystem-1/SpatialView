@@ -5,6 +5,7 @@ using System.Data;
 using System.Threading.Tasks;
 using System.Linq;
 using SpatialView.Core.GisEngine;
+using SpatialView.Engine.Geometry;
 
 namespace SpatialView.ViewModels;
 
@@ -39,7 +40,10 @@ public partial class AttributePanelViewModel : ObservableObject
     
     [ObservableProperty]
     private string _statusMessage = "레이어를 선택하세요";
-    
+
+    [ObservableProperty]
+    private bool _hasUnsavedChanges = false;
+
     /// <summary>
     /// 선택된 피처 ID 목록
     /// </summary>
@@ -219,7 +223,15 @@ public partial class AttributePanelViewModel : ObservableObject
                         continue;
 
                     if (feature.AttributeNames.Contains(col.ColumnName))
-                        newRow[col.ColumnName] = feature.GetAttribute(col.ColumnName);
+                    {
+                        var value = feature.GetAttribute(col.ColumnName);
+                        // null 값은 DBNull.Value로 처리
+                        newRow[col.ColumnName] = value ?? DBNull.Value;
+                    }
+                    else
+                    {
+                        newRow[col.ColumnName] = DBNull.Value;
+                    }
                 }
 
                 resultTable.Rows.Add(newRow);
@@ -333,6 +345,334 @@ public partial class AttributePanelViewModel : ObservableObject
             _ = LoadAttributeTableAsync(SelectedLayer);
         }
     }
+
+    /// <summary>
+    /// 속성 테이블 저장 요청 이벤트
+    /// </summary>
+    public event Action? SaveTableRequested;
+
+    /// <summary>
+    /// 속성 테이블 내보내기 요청 이벤트
+    /// </summary>
+    public event Action? ExportTableRequested;
+
+    [RelayCommand]
+    private void SaveTable()
+    {
+        SaveTableRequested?.Invoke();
+    }
+
+    [RelayCommand]
+    private void ExportTable()
+    {
+        ExportTableRequested?.Invoke();
+    }
+
+    /// <summary>
+    /// 변경된 속성을 원본 데이터 소스에 저장
+    /// </summary>
+    public async Task<(bool Success, string Message)> SaveToDataSourceAsync()
+    {
+        // 선택 레이어가 없으면 테이블명 기반으로 복구 시도
+        if (SelectedLayer == null)
+        {
+            SelectedLayer = ResolveSelectedLayer();
+        }
+        if (SelectedLayer == null)
+        {
+            return (false, "선택된 레이어가 없습니다");
+        }
+
+        if (!HasUnsavedChanges)
+        {
+            return (true, "저장할 변경사항이 없습니다");
+        }
+
+        try
+        {
+            IsLoading = true;
+            StatusMessage = "데이터 저장 중...";
+
+            // SpatialViewVectorLayerAdapter에서 데이터 소스 가져오기
+            if (SelectedLayer.Layer is not Infrastructure.GisEngine.SpatialViewVectorLayerAdapter adapter)
+            {
+                return (false, "지원되지 않는 레이어 유형입니다");
+            }
+
+            var engineLayer = adapter.GetEngineLayer();
+            var dataSource = engineLayer.DataSource;
+
+            if (dataSource == null)
+            {
+                return (false, "데이터 소스를 찾을 수 없습니다");
+            }
+
+            // Shapefile인 경우 직접 처리
+            if (dataSource is Engine.Data.Sources.ShapefileDataSource shpDataSource)
+            {
+                var features = engineLayer.GetFeatures((Envelope?)null).ToList();
+
+                // 필드 구조 변경 감지: 피처의 필드와 AttributeTable의 필드 비교
+                var needsRewrite = DetectFieldStructureChanges(shpDataSource, features);
+
+                if (needsRewrite && AttributeTable != null)
+                {
+                    // 필드 구조 변경이 있으면 DBF 파일 전체 재작성
+                    var fieldDefs = new List<Engine.Data.Sources.DbfFieldDefinition>();
+                    foreach (System.Data.DataColumn col in AttributeTable.Columns)
+                    {
+                        if (col.ColumnName == "FID") continue;
+                        fieldDefs.Add(Engine.Data.Sources.DbfFieldDefinition.FromType(col.ColumnName, col.DataType));
+                    }
+
+                    // 피처에 AttributeTable의 최신 데이터 반영
+                    SyncAttributeTableToFeatures(features);
+
+                    var success = await Task.Run(() => shpDataSource.RewriteDbf(features, fieldDefs));
+
+                    if (success)
+                    {
+                        HasUnsavedChanges = false;
+                        StatusMessage = $"{features.Count}개 피처 저장 완료 (필드 구조 변경됨)";
+                        return (true, $"{features.Count}개 피처가 저장되었습니다 (필드 구조 포함)");
+                    }
+                    else
+                    {
+                        return (false, "DBF 파일 재작성 실패: 파일이 잠겨있거나 쓰기 권한이 없습니다");
+                    }
+                }
+                else
+                {
+                    // 필드 구조 변경 없이 값만 업데이트
+                    SyncAttributeTableToFeatures(features);
+                    var updateCount = await shpDataSource.UpdateFeaturesAsync(shpDataSource.Name, features);
+
+                    if (updateCount > 0)
+                    {
+                        HasUnsavedChanges = false;
+                        StatusMessage = $"{updateCount}개 피처 저장 완료";
+                        return (true, $"{updateCount}개 피처가 저장되었습니다");
+                    }
+                    else
+                    {
+                        return (false, "저장 실패: 파일이 잠겨있거나 쓰기 권한이 없습니다");
+                    }
+                }
+            }
+
+            // 일반 IDataSource 인터페이스를 통한 저장
+            var dsInterface = dataSource as Engine.Data.Sources.IDataSource;
+            if (dsInterface == null)
+            {
+                return (false, "데이터 소스가 쓰기를 지원하지 않습니다");
+            }
+
+            if (dsInterface.IsReadOnly)
+            {
+                return (false, "읽기 전용 데이터 소스입니다");
+            }
+
+            // 모든 피처 업데이트
+            var allFeatures = engineLayer.GetFeatures((Envelope?)null).ToList();
+            int successCount = 0;
+            int failCount = 0;
+
+            foreach (var feature in allFeatures)
+            {
+                var result = await dsInterface.UpdateFeatureAsync(engineLayer.Name, feature);
+                if (result)
+                    successCount++;
+                else
+                    failCount++;
+            }
+
+            if (successCount > 0)
+            {
+                HasUnsavedChanges = false;
+                StatusMessage = $"{successCount}개 피처 저장 완료";
+                return (true, $"{successCount}개 피처가 저장되었습니다" + (failCount > 0 ? $" ({failCount}개 실패)" : ""));
+            }
+            else
+            {
+                return (false, "저장된 피처가 없습니다");
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"저장 실패: {ex.Message}";
+            return (false, $"저장 중 오류 발생: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// 필드 구조 변경 감지
+    /// </summary>
+    private bool DetectFieldStructureChanges(Engine.Data.Sources.ShapefileDataSource shpDataSource, List<Engine.Data.IFeature> features)
+    {
+        if (AttributeTable == null || features.Count == 0) return false;
+
+        // AttributeTable의 필드 목록 (FID 제외)
+        var tableFields = new HashSet<string>();
+        foreach (System.Data.DataColumn col in AttributeTable.Columns)
+        {
+            if (col.ColumnName != "FID")
+                tableFields.Add(col.ColumnName);
+        }
+
+        // 피처의 필드 목록
+        var featureFields = new HashSet<string>();
+        var firstFeature = features.FirstOrDefault();
+        if (firstFeature != null)
+        {
+            foreach (var name in firstFeature.Attributes.AttributeNames)
+            {
+                if (name != "Geometry" && name != "_geom_")
+                    featureFields.Add(name);
+            }
+        }
+
+        // 필드 목록이 다르면 구조 변경
+        return !tableFields.SetEquals(featureFields);
+    }
+
+    /// <summary>
+    /// AttributeTable 데이터를 피처에 동기화
+    /// </summary>
+    private void SyncAttributeTableToFeatures(List<Engine.Data.IFeature> features)
+    {
+        if (AttributeTable == null) return;
+
+        // FID 기준으로 피처 매핑
+        var featureMap = features.ToDictionary(f => Convert.ToUInt32(f.Id), f => f);
+
+        foreach (System.Data.DataRow row in AttributeTable.Rows)
+        {
+            if (!row.Table.Columns.Contains("FID")) continue;
+
+            var fid = Convert.ToUInt32(row["FID"]);
+            if (!featureMap.TryGetValue(fid, out var feature)) continue;
+
+            // 모든 필드 동기화
+            foreach (System.Data.DataColumn col in AttributeTable.Columns)
+            {
+                if (col.ColumnName == "FID") continue;
+
+                var value = row[col.ColumnName];
+                feature.Attributes[col.ColumnName] = value == DBNull.Value ? null : value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 속성 테이블을 CSV 파일로 내보내기
+    /// </summary>
+    public bool ExportTableToCsv(string filePath)
+    {
+        if (AttributeTable == null || AttributeTable.Rows.Count == 0)
+        {
+            StatusMessage = "내보낼 데이터가 없습니다";
+            return false;
+        }
+
+        try
+        {
+            using (var writer = new System.IO.StreamWriter(filePath, false, System.Text.Encoding.UTF8))
+            {
+                // 헤더 작성
+                var headers = new List<string>();
+                foreach (System.Data.DataColumn col in AttributeTable.Columns)
+                {
+                    headers.Add(EscapeCsvField(col.ColumnName));
+                }
+                writer.WriteLine(string.Join(",", headers));
+
+                // 데이터 작성
+                foreach (System.Data.DataRow row in AttributeTable.Rows)
+                {
+                    var values = new List<string>();
+                    foreach (System.Data.DataColumn col in AttributeTable.Columns)
+                    {
+                        var value = row[col];
+                        values.Add(value == DBNull.Value ? "" : EscapeCsvField(value?.ToString() ?? ""));
+                    }
+                    writer.WriteLine(string.Join(",", values));
+                }
+            }
+
+            StatusMessage = $"테이블 내보내기 완료: {filePath}";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"내보내기 실패: {ex.Message}";
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 속성 테이블을 Excel 호환 형식으로 내보내기 (탭 구분)
+    /// </summary>
+    public bool ExportTableToTsv(string filePath)
+    {
+        if (AttributeTable == null || AttributeTable.Rows.Count == 0)
+        {
+            StatusMessage = "내보낼 데이터가 없습니다";
+            return false;
+        }
+
+        try
+        {
+            using (var writer = new System.IO.StreamWriter(filePath, false, System.Text.Encoding.UTF8))
+            {
+                // 헤더 작성
+                var headers = new List<string>();
+                foreach (System.Data.DataColumn col in AttributeTable.Columns)
+                {
+                    headers.Add(col.ColumnName);
+                }
+                writer.WriteLine(string.Join("\t", headers));
+
+                // 데이터 작성
+                foreach (System.Data.DataRow row in AttributeTable.Rows)
+                {
+                    var values = new List<string>();
+                    foreach (System.Data.DataColumn col in AttributeTable.Columns)
+                    {
+                        var value = row[col];
+                        values.Add(value == DBNull.Value ? "" : value?.ToString() ?? "");
+                    }
+                    writer.WriteLine(string.Join("\t", values));
+                }
+            }
+
+            StatusMessage = $"테이블 내보내기 완료: {filePath}";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"내보내기 실패: {ex.Message}";
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// CSV 필드 이스케이프 처리
+    /// </summary>
+    private string EscapeCsvField(string field)
+    {
+        if (string.IsNullOrEmpty(field)) return "";
+
+        // 쉼표, 따옴표, 개행이 포함된 경우 따옴표로 감싸기
+        if (field.Contains(',') || field.Contains('"') || field.Contains('\n') || field.Contains('\r'))
+        {
+            return $"\"{field.Replace("\"", "\"\"")}\"";
+        }
+        return field;
+    }
     
     /// <summary>
     /// 필드 추가 다이얼로그 열기 요청 이벤트
@@ -403,7 +743,7 @@ public partial class AttributePanelViewModel : ObservableObject
     public void ExecuteAddField(string fieldName, Type fieldType, object? defaultValue)
     {
         if (AttributeTable == null) return;
-        
+
         try
         {
             // 중복 확인
@@ -412,11 +752,11 @@ public partial class AttributePanelViewModel : ObservableObject
                 StatusMessage = $"필드 '{fieldName}'이(가) 이미 존재합니다";
                 return;
             }
-            
+
             // 열 추가
             var newColumn = new DataColumn(fieldName, fieldType);
             AttributeTable.Columns.Add(newColumn);
-            
+
             // 기본값 설정
             if (defaultValue != null)
             {
@@ -432,9 +772,13 @@ public partial class AttributePanelViewModel : ObservableObject
                     }
                 }
             }
-            
+
+            // VectorLayer 피처에도 필드 추가 동기화
+            SyncFieldToVectorLayer(fieldName, fieldType, defaultValue);
+
             StatusMessage = $"필드 '{fieldName}' 추가됨";
-            
+            HasUnsavedChanges = true;
+
             // DataGrid 갱신을 위해 PropertyChanged 발생
             OnPropertyChanged(nameof(AttributeTable));
         }
@@ -450,9 +794,13 @@ public partial class AttributePanelViewModel : ObservableObject
     public void ExecuteDeleteField(string fieldName)
     {
         if (AttributeTable == null) return;
-        
+
         try
         {
+            if (SelectedLayer == null)
+            {
+                SelectedLayer = ResolveSelectedLayer();
+            }
             if (fieldName == "FID")
             {
                 StatusMessage = "FID 필드는 삭제할 수 없습니다";
@@ -460,7 +808,7 @@ public partial class AttributePanelViewModel : ObservableObject
                     System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
                 return;
             }
-            
+
             if (!AttributeTable.Columns.Contains(fieldName))
             {
                 StatusMessage = $"필드 '{fieldName}'을(를) 찾을 수 없습니다";
@@ -468,16 +816,21 @@ public partial class AttributePanelViewModel : ObservableObject
                     System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
                 return;
             }
-            
+
             // 열 삭제
             AttributeTable.Columns.Remove(fieldName);
-            
+
+            // VectorLayer 피처에서도 필드 삭제 동기화
+            RemoveFieldFromVectorLayer(fieldName);
+
             // DataGrid 갱신을 위해 테이블 재설정
             var temp = AttributeTable;
             AttributeTable = null;
             AttributeTable = temp;
-            
+
             StatusMessage = $"필드 '{fieldName}' 삭제됨";
+            HasUnsavedChanges = true;
+
             System.Windows.MessageBox.Show($"필드 '{fieldName}'이(가) 삭제되었습니다.", "완료",
                 System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
         }
@@ -538,6 +891,29 @@ public partial class AttributePanelViewModel : ObservableObject
             
             StatusMessage = $"계산 완료: {successCount}개 성공, {errorCount}개 실패";
             OnPropertyChanged(nameof(AttributeTable));
+            HasUnsavedChanges = true;
+
+            // 결과를 실제 레이어 피처에 반영 (메모리 캐시 반영)
+            var layerVm = SelectedLayer;
+            if (layerVm?.Layer is Infrastructure.GisEngine.SpatialViewVectorLayerAdapter adapter)
+            {
+                var engineLayer = adapter.GetEngineLayer();
+                var features = engineLayer.GetFeatures((Envelope?)null).ToList();
+                var rowCount = Math.Min(AttributeTable.Rows.Count, features.Count);
+                for (var i = 0; i < rowCount; i++)
+                {
+                    var row = AttributeTable.Rows[i];
+                    var feature = features[i];
+                    foreach (DataColumn col in AttributeTable.Columns)
+                    {
+                        if (col.ColumnName == "FID") continue;
+                        var val = row[col.ColumnName];
+                        feature.Attributes[col.ColumnName] = val == DBNull.Value ? null : val;
+                    }
+                }
+                engineLayer.InvalidateViewportCache();
+                layerVm.RaiseLayerChanged();
+            }
         }
         catch (Exception ex)
         {
@@ -585,6 +961,88 @@ public partial class AttributePanelViewModel : ObservableObject
         }
         
         StatusMessage = $"{featureIds.Count}개 피처 선택됨";
+    }
+
+    /// <summary>
+    /// VectorLayer 피처에 새 필드 추가 동기화
+    /// </summary>
+    private void SyncFieldToVectorLayer(string fieldName, Type fieldType, object? defaultValue)
+    {
+        try
+        {
+            if (SelectedLayer == null)
+            {
+                SelectedLayer = ResolveSelectedLayer();
+            }
+            if (SelectedLayer?.Layer is not Infrastructure.GisEngine.SpatialViewVectorLayerAdapter adapter)
+                return;
+
+            var engineLayer = adapter.GetEngineLayer();
+            var features = engineLayer.GetFeatures((Envelope?)null).ToList();
+
+            foreach (var feature in features)
+            {
+                // 피처의 Attributes에 새 필드 추가
+                if (!feature.Attributes.AttributeNames.Contains(fieldName))
+                {
+                    feature.Attributes[fieldName] = defaultValue;
+                }
+            }
+
+            engineLayer.InvalidateViewportCache();
+            System.Diagnostics.Debug.WriteLine($"SyncFieldToVectorLayer: '{fieldName}' 필드 추가됨 ({features.Count}개 피처)");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"SyncFieldToVectorLayer 오류: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// VectorLayer 피처에서 필드 삭제 동기화
+    /// </summary>
+    private void RemoveFieldFromVectorLayer(string fieldName)
+    {
+        try
+        {
+            if (SelectedLayer == null)
+            {
+                SelectedLayer = ResolveSelectedLayer();
+            }
+            if (SelectedLayer?.Layer is not Infrastructure.GisEngine.SpatialViewVectorLayerAdapter adapter)
+                return;
+
+            var engineLayer = adapter.GetEngineLayer();
+            var features = engineLayer.GetFeatures((Envelope?)null).ToList();
+
+            foreach (var feature in features)
+            {
+                // 피처의 Attributes에서 필드 삭제
+                feature.Attributes.Remove(fieldName);
+            }
+
+            engineLayer.InvalidateViewportCache();
+            System.Diagnostics.Debug.WriteLine($"RemoveFieldFromVectorLayer: '{fieldName}' 필드 삭제됨 ({features.Count}개 피처)");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"RemoveFieldFromVectorLayer 오류: {ex.Message}");
+        }
+    }
+
+    private LayerItemViewModel? ResolveSelectedLayer()
+    {
+        if (Layers == null || Layers.Count == 0)
+            return null;
+
+        if (AttributeTable != null && !string.IsNullOrWhiteSpace(AttributeTable.TableName))
+        {
+            var byName = Layers.FirstOrDefault(l => l.Name == AttributeTable.TableName);
+            if (byName != null)
+                return byName;
+        }
+
+        return Layers.FirstOrDefault(l => !l.IsEmpty) ?? Layers.FirstOrDefault();
     }
 }
 

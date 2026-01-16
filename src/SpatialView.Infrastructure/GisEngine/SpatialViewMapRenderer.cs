@@ -81,6 +81,14 @@ public class SpatialViewMapRenderer : IMapRenderer, IDisposable
         Render();
         MapRefreshed?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>
+    /// 렌더링 캐시 무효화 (스타일/팔레트 변경 시 필수)
+    /// </summary>
+    public void InvalidateCache()
+    {
+        _renderer?.InvalidateCache();
+    }
     
     private void CreateRenderer()
     {

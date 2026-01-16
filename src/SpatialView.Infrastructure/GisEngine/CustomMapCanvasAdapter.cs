@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Media;
 using SpatialView.Core.GisEngine;
+using CoreVectorStyle = SpatialView.Core.Styling.IVectorStyle;
 using SpatialView.Engine.Rendering;
 
 namespace SpatialView.Infrastructure.GisEngine;
@@ -156,14 +157,14 @@ internal class EngineLayerCollectionAdapter : ILayerCollection
 
     public bool IsReadOnly => false;
 
-    public Core.GisEngine.ILayer this[int index] => new LayerAdapter(_engineLayers[index]);
+    public Core.GisEngine.ILayer this[int index] => WrapLayer(_engineLayers[index]);
 
     public Core.GisEngine.ILayer? this[string name]
     {
         get
         {
             var engineLayer = _engineLayers[name];
-            return engineLayer != null ? new LayerAdapter(engineLayer) : null;
+            return engineLayer != null ? WrapLayer(engineLayer) : null;
         }
     }
 
@@ -270,7 +271,7 @@ internal class EngineLayerCollectionAdapter : ILayerCollection
     {
         var args = new Core.GisEngine.LayerCollectionChangedEventArgs(
             (Core.GisEngine.LayerChangeType)(int)e.ChangeType,
-            e.Layer != null ? new LayerAdapter(e.Layer) : null,
+            e.Layer != null ? WrapLayer(e.Layer) : null,
             e.Index
         );
         CollectionChanged?.Invoke(this, args);
@@ -278,7 +279,17 @@ internal class EngineLayerCollectionAdapter : ILayerCollection
 
     public IEnumerator<Core.GisEngine.ILayer> GetEnumerator()
     {
-        return _engineLayers.Select(layer => (Core.GisEngine.ILayer)new LayerAdapter(layer)).GetEnumerator();
+        return _engineLayers.Select(layer => WrapLayer(layer)).GetEnumerator();
+    }
+
+    private Core.GisEngine.ILayer WrapLayer(SpatialView.Engine.Data.Layers.ILayer engineLayer)
+    {
+        if (engineLayer is SpatialView.Engine.Data.Layers.VectorLayer vectorLayer)
+        {
+            return new VectorLayerAdapter(vectorLayer);
+        }
+
+        return new LayerAdapter(engineLayer);
     }
 
     System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
@@ -292,55 +303,107 @@ internal class EngineLayerCollectionAdapter : ILayerCollection
 /// </summary>
 internal class LayerAdapter : Core.GisEngine.ILayer
 {
-    private readonly SpatialView.Engine.Data.Layers.ILayer _engineLayer;
+    protected readonly SpatialView.Engine.Data.Layers.ILayer EngineLayer;
 
     public LayerAdapter(SpatialView.Engine.Data.Layers.ILayer engineLayer)
     {
-        _engineLayer = engineLayer;
+        EngineLayer = engineLayer;
     }
 
     public string Name
     {
-        get => _engineLayer.Name;
-        set => _engineLayer.Name = value;
+        get => EngineLayer.Name;
+        set => EngineLayer.Name = value;
     }
 
     public bool Visible
     {
-        get => _engineLayer.Visible;
-        set => _engineLayer.Visible = value;
+        get => EngineLayer.Visible;
+        set => EngineLayer.Visible = value;
     }
 
     public double Opacity
     {
-        get => _engineLayer.Opacity;
-        set => _engineLayer.Opacity = value;
+        get => EngineLayer.Opacity;
+        set => EngineLayer.Opacity = value;
     }
 
     public int ZOrder
     {
-        get => _engineLayer.ZIndex;
-        set => _engineLayer.ZIndex = value;
+        get => EngineLayer.ZIndex;
+        set => EngineLayer.ZIndex = value;
     }
 
     public double MinimumZoom
     {
-        get => _engineLayer.MinimumZoom;
-        set => _engineLayer.MinimumZoom = value;
+        get => EngineLayer.MinimumZoom;
+        set => EngineLayer.MinimumZoom = value;
     }
 
     public double MaximumZoom
     {
-        get => _engineLayer.MaximumZoom;
-        set => _engineLayer.MaximumZoom = value;
+        get => EngineLayer.MaximumZoom;
+        set => EngineLayer.MaximumZoom = value;
     }
 
-    public SpatialView.Engine.Geometry.Envelope? Extent => _engineLayer.Extent;
+    public SpatialView.Engine.Geometry.Envelope? Extent => EngineLayer.Extent;
 
     public void Refresh()
     {
-        _engineLayer.Refresh();
+        EngineLayer.Refresh();
     }
 
-    internal SpatialView.Engine.Data.Layers.ILayer InternalLayer => _engineLayer;
+    internal SpatialView.Engine.Data.Layers.ILayer InternalLayer => EngineLayer;
+}
+
+/// <summary>
+/// Engine의 VectorLayer를 Core의 IVectorLayer로 어댑터
+/// </summary>
+internal class VectorLayerAdapter : LayerAdapter, Core.GisEngine.IVectorLayer
+{
+    private readonly SpatialView.Engine.Data.Layers.VectorLayer _vectorLayer;
+    private IFeatureSource? _dataSource;
+    private CoreVectorStyle? _style;
+
+    public VectorLayerAdapter(SpatialView.Engine.Data.Layers.VectorLayer engineLayer)
+        : base(engineLayer)
+    {
+        _vectorLayer = engineLayer;
+    }
+
+    public bool Enabled
+    {
+        get => _vectorLayer.Enabled;
+        set => _vectorLayer.Enabled = value;
+    }
+
+    public int SRID
+    {
+        get => _vectorLayer.SRID;
+        set => _vectorLayer.SRID = value;
+    }
+
+    public LayerType LayerType => LayerType.Vector;
+
+    public IFeatureSource? DataSource
+    {
+        get
+        {
+            if (_dataSource == null && _vectorLayer.DataSource != null && !string.IsNullOrEmpty(_vectorLayer.TableName))
+            {
+                _dataSource = new EngineDataSourceFeatureSourceAdapter(_vectorLayer.DataSource, _vectorLayer.TableName);
+            }
+
+            return _dataSource;
+        }
+        set => _dataSource = value;
+    }
+
+    public CoreVectorStyle? Style
+    {
+        get => _style;
+        set => _style = value;
+    }
+
+    public IDataProvider? Provider { get; set; }
 }

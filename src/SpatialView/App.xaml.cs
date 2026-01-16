@@ -14,29 +14,63 @@ namespace SpatialView;
 /// </summary>
 public partial class App : System.Windows.Application
 {
-    private readonly ServiceProvider _serviceProvider;
+    // null 가능: 방어적으로 OnStartup에서 재생성할 수 있도록
+    private ServiceProvider? _serviceProvider;
     private ILoggingService? _loggingService;
     private static bool _gdalInitialized = false;
 
     public App()
     {
+        InitializeComponent();
+
+        // Debug 로그를 파일로 저장
+        SetupDebugLogging();
+
         // 전역 예외 핸들러 등록
         DispatcherUnhandledException += App_DispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
         TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
-        
+
         // GDAL/OGR 초기화 (FileGDB 등 지원)
         SpatialView.Engine.Extensions.GdalSupport.Initialize();
-        
+
         // SpatialView 독립 엔진 초기화 (SharpMap 제거됨)
         InitializeSpatialViewEngine();
-        
-        var services = new ServiceCollection();
-        ConfigureServices(services);
-        _serviceProvider = services.BuildServiceProvider();
-        
-        // LoggingService 참조 가져오기
+
+        _serviceProvider = BuildServiceProvider();
         _loggingService = _serviceProvider.GetService<ILoggingService>();
+    }
+
+    /// <summary>
+    /// Debug 로그를 파일로 저장하도록 설정
+    /// </summary>
+    private void SetupDebugLogging()
+    {
+        try
+        {
+            // FileLogger 초기화
+            if (!Engine.Diagnostics.FileLogger.Initialize())
+            {
+                System.Diagnostics.Debug.WriteLine("FileLogger.Initialize() returned false");
+                return;
+            }
+
+            var logFile = Engine.Diagnostics.FileLogger.GetLogFilePath();
+            if (!string.IsNullOrEmpty(logFile))
+            {
+                System.Windows.MessageBox.Show(
+                    $"디버그 로그가 파일에 저장됩니다:\n\n{logFile}\n\n피처 선택 후 이 파일을 열어서 로그를 확인하세요.",
+                    "로그 파일 위치",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            var details = ex.ToString();
+            System.Diagnostics.Debug.WriteLine($"로그 설정 오류: {details}");
+            System.Windows.MessageBox.Show($"로그 설정 오류: {details}", "오류");
+        }
     }
     
     /// <summary>
@@ -262,6 +296,9 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(System.Windows.StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // 방어적으로 ServiceProvider 보장
+        _serviceProvider ??= BuildServiceProvider();
         
         var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
         mainWindow.Show();
@@ -277,5 +314,12 @@ public partial class App : System.Windows.Application
     /// ServiceProvider 접근을 위한 정적 속성
     /// </summary>
     public static App CurrentApp => (App)Current;
-    public IServiceProvider Services => _serviceProvider;
+    public IServiceProvider Services => _serviceProvider ?? throw new InvalidOperationException("ServiceProvider가 초기화되지 않았습니다.");
+
+    private ServiceProvider BuildServiceProvider()
+    {
+        var services = new ServiceCollection();
+        ConfigureServices(services);
+        return services.BuildServiceProvider();
+    }
 }

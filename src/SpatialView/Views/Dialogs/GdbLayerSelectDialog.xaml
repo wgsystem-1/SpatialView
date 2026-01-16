@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         Title="FileGDB 레이어 선택"
-        Width="500" Height="400"
+        Width="640" Height="440"
         WindowStartupLocation="CenterOwner"
         Style="{StaticResource MaterialDesignWindow}"
         Background="{DynamicResource MaterialDesignPaper}">
@@ -34,7 +34,8 @@
                 CornerRadius="4">
             <ListView x:Name="LayerListView"
                       SelectionMode="Extended"
-                      VirtualizingStackPanel.IsVirtualizing="True">
+                      VirtualizingStackPanel.IsVirtualizing="True"
+                      GridViewColumnHeader.Click="GridViewColumnHeader_Click">
                 <ListView.View>
                     <GridView>
                         <GridViewColumn Width="40">
@@ -46,9 +47,21 @@
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
-                        <GridViewColumn Header="레이어 이름" Width="200" DisplayMemberBinding="{Binding Name}"/>
-                        <GridViewColumn Header="피처 수" Width="80" DisplayMemberBinding="{Binding FeatureCount}"/>
-                        <GridViewColumn Header="유형" Width="100" DisplayMemberBinding="{Binding GeometryType}"/>
+                        <GridViewColumn Width="260" DisplayMemberBinding="{Binding Name}">
+                            <GridViewColumn.Header>
+                                <GridViewColumnHeader Tag="Name" Content="레이어 이름 ↕"/>
+                            </GridViewColumn.Header>
+                        </GridViewColumn>
+                        <GridViewColumn Width="100" DisplayMemberBinding="{Binding FeatureCount}">
+                            <GridViewColumn.Header>
+                                <GridViewColumnHeader Tag="FeatureCount" Content="피처 수 ↕"/>
+                            </GridViewColumn.Header>
+                        </GridViewColumn>
+                        <GridViewColumn Width="140" DisplayMemberBinding="{Binding GeometryType}">
+                            <GridViewColumn.Header>
+                                <GridViewColumnHeader Tag="GeometryType" Content="유형 ↕"/>
+                            </GridViewColumn.Header>
+                        </GridViewColumn>
                     </GridView>
                 </ListView.View>
             </ListView>

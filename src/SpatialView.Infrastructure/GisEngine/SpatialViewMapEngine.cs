@@ -95,13 +95,14 @@ public class SpatialViewMapEngine : IMapEngine
     
     public ICoordinate ScreenToMap(System.Windows.Point screenPoint)
     {
-        return _map.ScreenToWorld(
-            new System.Drawing.Point((int)screenPoint.X, (int)screenPoint.Y));
+        // double 정밀도 유지를 위해 int 캐스팅 제거
+        return _map.ScreenToWorld(screenPoint.X, screenPoint.Y);
     }
     
     public System.Windows.Point MapToScreen(ICoordinate mapPoint)
     {
-        var screenPoint = _map.WorldToScreen(mapPoint);
+        // float 정밀도 유지를 위해 WorldToScreenF 사용
+        var screenPoint = _map.WorldToScreenF(mapPoint);
         return new System.Windows.Point(screenPoint.X, screenPoint.Y);
     }
     
@@ -118,4 +119,9 @@ public class SpatialViewMapEngine : IMapEngine
     /// 내부 Map 객체 접근 (Infrastructure 내부용)
     /// </summary>
     internal MapContainer InternalMap => _map;
+
+    /// <summary>
+    /// 내부 Map 객체 접근 (선택/디버깅용 공개)
+    /// </summary>
+    public MapContainer EngineMap => _map;
 }

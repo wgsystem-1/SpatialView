@@ -21,7 +21,13 @@
       "Bash(mv:*)",
       "Bash(dir)",
       "Bash(del:*)",
-      "Bash(dotnet remove:*)"
+      "Bash(dotnet remove:*)",
+      "Bash(dir /b /o-d \"%LOCALAPPDATA%\\\\SpatialView\\\\Logs\\\\spatialview_*.log\")",
+      "Bash(ls:*)",
+      "Bash(./SpatialView.exe)",
+      "Bash(taskkill:*)",
+      "Bash(start \"\" SpatialView.exe)",
+      "Bash(powershell:*)"
     ],
     "deny": []
   }

@@ -5,6 +5,8 @@ using SpatialView.Core.Styling;
 using SpatialView.Core.Models;
 using SpatialView.Core.Services.Interfaces;
 using SpatialView.Engine.Geometry;
+using System.Linq;
+using EngineVectorLayer = SpatialView.Engine.Data.Layers.VectorLayer;
 
 namespace SpatialView.ViewModels;
 
@@ -504,7 +506,9 @@ public partial class MapViewModel : ObservableObject
     [RelayCommand]
     private void SetToolSelect()
     {
+        System.Diagnostics.Debug.WriteLine("SetToolSelect 호출됨");
         ActiveTool = MapTool.Select;
+        System.Diagnostics.Debug.WriteLine($"ActiveTool 설정됨: {ActiveTool}");
     }
     
     /// <summary>
@@ -513,113 +517,461 @@ public partial class MapViewModel : ObservableObject
     /// <param name="worldX">지도 X 좌표</param>
     /// <param name="worldY">지도 Y 좌표</param>
     /// <param name="tolerance">선택 허용 오차 (픽셀)</param>
-    public void SelectFeaturesAtPoint(double worldX, double worldY, double tolerance = 5)
+    public void SelectFeaturesAtPoint(double worldX, double worldY, double tolerance = 20)
     {
-        if (Map == null) return;
-        
+        if (Map == null)
+        {
+            System.Diagnostics.Debug.WriteLine("SelectFeaturesAtPoint: Map이 null입니다.");
+            return;
+        }
+
         try
         {
-            // 허용 오차를 지도 좌표로 변환
-            var pixelTolerance = tolerance;
-            // PixelSize 계산: Zoom / Width
-            var pixelSize = Map.Zoom / Map.Size.Width;
-            var worldTolerance = pixelSize * pixelTolerance;
-            
-            // 클릭 포인트 생성
-            var clickPoint = new Engine.Geometry.Point(worldX, worldY);
-            
-            // 선택 영역 생성 (점 주변 박스) - 후보 필터링용
-            var selectionBox = new Envelope(
-                worldX - worldTolerance * 2,
-                worldX + worldTolerance * 2,
-                worldY - worldTolerance * 2,
-                worldY + worldTolerance * 2);
-            
+            var clickCoord = new Coordinate(worldX, worldY);
+            var clickScreen = MapToScreen(clickCoord, Map);
+            var pixelTolerance = Math.Max(5, tolerance);
+
             var selectedIds = new List<uint>();
-            ILayer? selectedLayer = null;
-            double minDistance = double.MaxValue;
+            var selectedGeometries = new List<IGeometry>();
+            IVectorLayer? selectedLayer = null;
+            double minScreenDistance = double.MaxValue;
             uint closestFeatureId = 0;
-            
-            // 레이어를 역순으로 순회 (맨 위 레이어부터)
-            for (int i = Map.Layers.Count - 1; i >= 0; i--)
+            IGeometry? closestGeometry = null;
+
+            // 1) 상단 레이어부터 먼저 선택 (엔진 레이어 기준)
+            foreach (var engineLayer in GetEngineLayersForSelection())
             {
-                var layer = Map.Layers[i];
-                
-                // VectorLayer만 선택 가능
-                if (layer is not IVectorLayer vectorLayer) continue;
-                if (!layer.Visible) continue;
-                
-                try
+                var layerMinDistance = double.MaxValue;
+                uint layerClosestId = 0;
+
+                var features = engineLayer.GetFeatures(Map.ViewExtent) ?? Enumerable.Empty<Engine.Data.IFeature>();
+                foreach (var feature in features)
                 {
-                    // IProvider로 캐스팅
-                    var provider = vectorLayer.Provider;
-                    if (provider != null)
+                    if (feature.Geometry == null) continue;
+
+                    var distancePixels = GetScreenDistance(feature.Geometry, Map, clickScreen, clickCoord);
+                    if (distancePixels < layerMinDistance)
                     {
-                        provider.Open();
-                        
-                        // 1단계: Bounding Box로 후보 피처 조회
-                        var candidateOids = provider.GetObjectIDsInView(selectionBox);
-                        
-                        if (candidateOids != null && candidateOids.Count > 0)
+                        layerMinDistance = distancePixels;
+                        layerClosestId = ToUIntId(feature.Id);
+                        closestGeometry = feature.Geometry;
+                    }
+                }
+
+                if (layerMinDistance <= pixelTolerance && layerClosestId != 0)
+                {
+                    minScreenDistance = layerMinDistance;
+                    closestFeatureId = layerClosestId;
+                    selectedLayer = ResolveCoreVectorLayer(engineLayer);
+                    selectedIds.Add(closestFeatureId);
+                    if (closestGeometry != null)
+                    {
+                        selectedGeometries.Add(closestGeometry);
+                    }
+                    break;
+                }
+            }
+
+            // 2) 그래도 없으면 전체 피처에서 완화된 조건으로 재검색
+            if (selectedIds.Count == 0)
+            {
+                var fallbackTolerance = Math.Max(pixelTolerance * 4, 80);
+
+                foreach (var engineLayer in GetEngineLayersForSelection())
+                {
+                    var features = engineLayer.GetFeatures((Envelope?)null) ?? Enumerable.Empty<Engine.Data.IFeature>();
+                    foreach (var feature in features)
+                    {
+                        if (feature.Geometry == null) continue;
+
+                        var distancePixels = GetScreenDistance(feature.Geometry, Map, clickScreen, clickCoord);
+                        if (distancePixels < minScreenDistance)
                         {
-                            // 2단계: 실제 지오메트리와의 거리 계산
-                            foreach (var oid in candidateOids)
-                            {
-                                try
-                                {
-                                    var geometry = provider.GetGeometryByID(oid);
-                                    if (geometry == null) continue;
-                                    
-                                    // 지오메트리와 클릭 포인트 간의 거리 계산
-                                    double distance = geometry.Distance(clickPoint);
-                                    
-                                    // 허용 오차 내에 있고, 가장 가까운 피처 선택
-                                    if (distance <= worldTolerance && distance < minDistance)
-                                    {
-                                        minDistance = distance;
-                                        closestFeatureId = oid;
-                                        selectedLayer = layer;
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    System.Diagnostics.Debug.WriteLine($"지오메트리 거리 계산 오류: {ex.Message}");
-                                }
-                            }
-                        }
-                        
-                        provider.Close();
-                        
-                        // 이 레이어에서 피처를 찾았으면 중단
-                        if (selectedLayer == vectorLayer)
-                        {
-                            selectedIds.Add(closestFeatureId);
-                            break;
+                            minScreenDistance = distancePixels;
+                            closestFeatureId = ToUIntId(feature.Id);
+                            selectedLayer = ResolveCoreVectorLayer(engineLayer);
+                            closestGeometry = feature.Geometry;
                         }
                     }
                 }
-                catch (Exception ex)
+
+                if (minScreenDistance <= fallbackTolerance && closestFeatureId != 0 && selectedLayer != null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"레이어 '{layer.Name}' 선택 오류: {ex.Message}");
+                    selectedIds.Add(closestFeatureId);
+                    if (closestGeometry != null)
+                    {
+                        selectedGeometries.Add(closestGeometry);
+                    }
                 }
             }
-            
-            // 선택 결과 저장
+
             SelectedFeatureIds = selectedIds;
             SelectionTargetLayer = selectedLayer;
-            
-            // 하이라이트 업데이트
-            UpdateHighlight(selectedLayer as IVectorLayer, selectedIds);
-            
-            // 이벤트 발생
+
+            UpdateHighlight(selectedLayer, selectedIds, selectedGeometries);
             FeatureSelected?.Invoke(selectedLayer, selectedIds);
-            
-            System.Diagnostics.Debug.WriteLine($"피처 선택: {selectedIds.Count}개 (레이어: {selectedLayer?.Name ?? "없음"}, 거리: {minDistance:F2})");
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"피처 선택 오류: {ex.Message}");
         }
+    }
+
+    private IEnumerable<EngineVectorLayer> GetEngineLayersForSelection()
+    {
+        if (Map is SpatialView.Infrastructure.GisEngine.SpatialViewMapEngine engineMap)
+        {
+            var layers = engineMap.EngineMap.LayerCollection;
+            for (int i = layers.Count - 1; i >= 0; i--)
+            {
+                if (layers[i] is EngineVectorLayer vectorLayer && vectorLayer.Visible && vectorLayer.Selectable)
+                {
+                    yield return vectorLayer;
+                }
+            }
+            yield break;
+        }
+
+        // 폴백: Core 레이어에서 엔진 레이어 추출
+        for (int i = Map.Layers.Count - 1; i >= 0; i--)
+        {
+            if (Map.Layers[i] is IVectorLayer vectorLayer)
+            {
+                var engineLayer = TryGetEngineLayer(vectorLayer);
+                if (engineLayer != null && engineLayer.Visible && engineLayer.Selectable)
+                {
+                    yield return engineLayer;
+                }
+            }
+        }
+    }
+
+    private EngineVectorLayer? TryGetEngineLayer(IVectorLayer vectorLayer)
+    {
+        if (vectorLayer is SpatialView.Infrastructure.GisEngine.SpatialViewVectorLayerAdapter adapter)
+            return adapter.GetEngineLayer();
+
+        if (vectorLayer is EngineVectorLayer direct)
+            return direct;
+
+        return null;
+    }
+
+    private IVectorLayer? ResolveCoreVectorLayer(EngineVectorLayer engineLayer)
+    {
+        if (Map == null) return null;
+
+        for (int i = Map.Layers.Count - 1; i >= 0; i--)
+        {
+            if (Map.Layers[i] is IVectorLayer vectorLayer)
+            {
+                var resolved = TryGetEngineLayer(vectorLayer);
+                if (resolved != null && ReferenceEquals(resolved, engineLayer))
+                    return vectorLayer;
+                if (Map.Layers[i].Name == engineLayer.Name)
+                    return vectorLayer;
+            }
+        }
+
+        var fallback = new SpatialView.Infrastructure.GisEngine.SpatialViewVectorLayerAdapter(engineLayer);
+        if (engineLayer.DataSource != null && !string.IsNullOrEmpty(engineLayer.TableName))
+        {
+            fallback.DataSource = new SpatialView.Infrastructure.GisEngine.EngineDataSourceFeatureSourceAdapter(
+                engineLayer.DataSource, engineLayer.TableName);
+        }
+        return fallback;
+    }
+
+    private static uint ToUIntId(object? id)
+    {
+        if (id is uint uid) return uid;
+        if (id is int iid) return (uint)iid;
+        if (id is long lid) return (uint)lid;
+        return id != null ? (uint)id.GetHashCode() : 0;
+    }
+
+    /// <summary>
+    /// 선택 실패 시 가장 가까운 피처를 재검색(완화된 허용오차)
+    /// </summary>
+    private void FallbackSelectNearest(System.Windows.Point clickScreen, Engine.Geometry.ICoordinate clickWorld,
+        double pixelTolerance, double worldPerPixel,
+        Envelope selectionBox, Envelope expandedSelectionBox, double worldX, double worldY,
+        ref List<uint> selectedIds, ref ILayer? selectedLayer, ref double minScreenDistance, ref uint closestFeatureId)
+    {
+        if (Map == null) return;
+
+        var fallbackTolerance = Math.Max(pixelTolerance * 3, 30); // 30px 이상으로 완화
+
+        // 레이어 역순 스캔
+        for (int i = Map.Layers.Count - 1; i >= 0; i--)
+        {
+            var layer = Map.Layers[i];
+            if (layer is not IVectorLayer vectorLayer) continue;
+            if (!layer.Visible) continue;
+
+            Engine.Data.Layers.VectorLayer? engineLayer = null;
+            if (vectorLayer is Infrastructure.GisEngine.SpatialViewVectorLayerAdapter adapter)
+            {
+                engineLayer = adapter.GetEngineLayer();
+            }
+            else if (vectorLayer is Engine.Data.Layers.VectorLayer directLayer)
+            {
+                engineLayer = directLayer;
+            }
+
+            if (engineLayer == null) continue;
+
+            IEnumerable<Engine.Data.IFeature> features =
+                engineLayer.GetFeatures(expandedSelectionBox) ?? Enumerable.Empty<Engine.Data.IFeature>();
+            if (!features.Any())
+            {
+                features = engineLayer.GetFeatures(Map.ViewExtent) ?? Enumerable.Empty<Engine.Data.IFeature>();
+            }
+
+            foreach (var feature in features)
+            {
+                if (feature.Geometry == null) continue;
+                double distancePixels = GetScreenDistance(feature.Geometry, Map, clickScreen, clickWorld);
+                if (distancePixels < minScreenDistance && distancePixels <= fallbackTolerance)
+                {
+                    minScreenDistance = distancePixels;
+                    if (feature.Id is uint uid)
+                        closestFeatureId = uid;
+                    else if (feature.Id is int iid)
+                        closestFeatureId = (uint)iid;
+                    else if (feature.Id is long lid)
+                        closestFeatureId = (uint)lid;
+                    else
+                        closestFeatureId = (uint)feature.Id.GetHashCode();
+
+                    selectedLayer = layer;
+                }
+            }
+
+            if (selectedLayer == layer)
+            {
+                selectedIds.Add(closestFeatureId);
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 모든 피처(뷰포트/박스 무시)에서 최근접 검색 - 최종 안전망
+    /// </summary>
+    private void FallbackSelectAllFeatures(System.Windows.Point clickScreen, Engine.Geometry.ICoordinate clickWorld,
+        double pixelTolerance, double worldPerPixel,
+        ref List<uint> selectedIds, ref ILayer? selectedLayer, ref double minScreenDistance, ref uint closestFeatureId)
+    {
+        if (Map == null) return;
+
+        for (int i = Map.Layers.Count - 1; i >= 0; i--)
+        {
+            var layer = Map.Layers[i];
+            if (layer is not IVectorLayer vectorLayer) continue;
+            if (!layer.Visible) continue;
+
+            Engine.Data.Layers.VectorLayer? engineLayer = null;
+            if (vectorLayer is Infrastructure.GisEngine.SpatialViewVectorLayerAdapter adapter)
+                engineLayer = adapter.GetEngineLayer();
+            else if (vectorLayer is Engine.Data.Layers.VectorLayer directLayer)
+                engineLayer = directLayer;
+
+            if (engineLayer == null) continue;
+
+            var features = engineLayer.GetFeatures((Envelope?)null) ?? Enumerable.Empty<Engine.Data.IFeature>();
+            foreach (var feature in features)
+            {
+                if (feature.Geometry == null) continue;
+
+                double distancePixels = GetScreenDistance(feature.Geometry, Map, clickScreen, clickWorld);
+                if (distancePixels < minScreenDistance && distancePixels <= pixelTolerance * 5) // 여유 허용
+                {
+                    minScreenDistance = distancePixels;
+                    if (feature.Id is uint uid)
+                        closestFeatureId = uid;
+                    else if (feature.Id is int iid)
+                        closestFeatureId = (uint)iid;
+                    else if (feature.Id is long lid)
+                        closestFeatureId = (uint)lid;
+                    else
+                        closestFeatureId = (uint)feature.Id.GetHashCode();
+
+                    selectedLayer = layer;
+                }
+            }
+
+            if (selectedLayer == layer)
+            {
+                selectedIds.Add(closestFeatureId);
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 모든 레이어/모든 피처에서 최근접 검색 (최종 폴백)
+    /// </summary>
+    private void FinalSelectAllLayers(System.Windows.Point clickScreen, Engine.Geometry.ICoordinate clickWorld,
+        double pixelTolerance,
+        ref List<uint> selectedIds, ref ILayer? selectedLayer, ref double minScreenDistance, ref uint closestFeatureId)
+    {
+        if (Map == null) return;
+
+        var finalTolerance = Math.Max(pixelTolerance * 10, 100); // 여유 있게 100px 이상
+
+        for (int i = Map.Layers.Count - 1; i >= 0; i--)
+        {
+            var layer = Map.Layers[i];
+            if (layer is not IVectorLayer vectorLayer) continue;
+            if (!layer.Visible) continue;
+
+            Engine.Data.Layers.VectorLayer? engineLayer = null;
+            if (vectorLayer is Infrastructure.GisEngine.SpatialViewVectorLayerAdapter adapter)
+                engineLayer = adapter.GetEngineLayer();
+            else if (vectorLayer is Engine.Data.Layers.VectorLayer directLayer)
+                engineLayer = directLayer;
+
+            if (engineLayer == null) continue;
+
+            var features = engineLayer.GetFeatures((Envelope?)null) ?? Enumerable.Empty<Engine.Data.IFeature>();
+            foreach (var feature in features)
+            {
+                if (feature.Geometry == null) continue;
+
+                double distancePixels = GetScreenDistance(feature.Geometry, Map, clickScreen, clickWorld);
+                if (distancePixels < minScreenDistance && distancePixels <= finalTolerance)
+                {
+                    minScreenDistance = distancePixels;
+                    if (feature.Id is uint uid)
+                        closestFeatureId = uid;
+                    else if (feature.Id is int iid)
+                        closestFeatureId = (uint)iid;
+                    else if (feature.Id is long lid)
+                        closestFeatureId = (uint)lid;
+                    else
+                        closestFeatureId = (uint)feature.Id.GetHashCode();
+
+                    selectedLayer = layer;
+                }
+            }
+
+            if (selectedLayer == layer)
+            {
+                selectedIds.Add(closestFeatureId);
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 지오메트리와 클릭 지점 간 최소 화면 픽셀 거리 계산
+    /// </summary>
+    private double GetScreenDistance(Engine.Geometry.IGeometry geometry, IMapEngine map, System.Windows.Point clickScreen, Engine.Geometry.ICoordinate clickWorld)
+    {
+        try
+        {
+            switch (geometry)
+            {
+                case Engine.Geometry.Point pt:
+                    return Distance(clickScreen, MapToScreen(pt.Coordinate, map));
+                case Engine.Geometry.MultiPoint mp:
+                    return mp.Geometries
+                        .OfType<Engine.Geometry.Point>()
+                        .Select(p => Distance(clickScreen, MapToScreen(p.Coordinate, map)))
+                        .DefaultIfEmpty(double.MaxValue)
+                        .Min();
+                case Engine.Geometry.LineString line:
+                    return DistanceToLine(clickScreen, line.Coordinates, map);
+                case Engine.Geometry.MultiLineString mls:
+                    return mls.Geometries
+                        .OfType<Engine.Geometry.LineString>()
+                        .Select(l => DistanceToLine(clickScreen, l.Coordinates, map))
+                        .DefaultIfEmpty(double.MaxValue)
+                        .Min();
+                case Engine.Geometry.Polygon poly:
+                    // 폴리곤 내부 클릭은 거리 0으로 처리
+                    if (poly.Contains(clickWorld))
+                        return 0;
+                    return DistanceToPolygon(clickScreen, poly, map);
+                case Engine.Geometry.MultiPolygon mpoly:
+                    if (mpoly.Contains(clickWorld))
+                        return 0;
+                    return mpoly.Geometries
+                        .OfType<Engine.Geometry.Polygon>()
+                        .Select(p => DistanceToPolygon(clickScreen, p, map))
+                        .DefaultIfEmpty(double.MaxValue)
+                        .Min();
+                default:
+                    return double.MaxValue;
+            }
+        }
+        catch
+        {
+            return double.MaxValue;
+        }
+    }
+
+    private double Distance(System.Windows.Point click, System.Windows.Point screen)
+    {
+        var dx = click.X - screen.X;
+        var dy = click.Y - screen.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    private double DistanceToLine(System.Windows.Point click, Engine.Geometry.ICoordinate[] coords, IMapEngine map)
+    {
+        if (coords == null || coords.Length < 2) return double.MaxValue;
+        double min = double.MaxValue;
+        var prev = MapToScreen(coords[0], map);
+        for (int i = 1; i < coords.Length; i++)
+        {
+            var curr = MapToScreen(coords[i], map);
+            min = Math.Min(min, DistancePointToSegment(click, prev, curr));
+            prev = curr;
+        }
+        return min;
+    }
+
+    private double DistanceToPolygon(System.Windows.Point click, Engine.Geometry.Polygon poly, IMapEngine map)
+    {
+        double min = double.MaxValue;
+        if (poly.ExteriorRing?.Coordinates != null)
+        {
+            min = Math.Min(min, DistanceToLine(click, poly.ExteriorRing.Coordinates, map));
+        }
+        if (poly.InteriorRings != null)
+        {
+            foreach (var hole in poly.InteriorRings)
+            {
+                if (hole?.Coordinates != null)
+                    min = Math.Min(min, DistanceToLine(click, hole.Coordinates, map));
+            }
+        }
+        return min;
+    }
+
+    private double DistancePointToSegment(System.Windows.Point p, System.Windows.Point a, System.Windows.Point b)
+    {
+        double ax = a.X, ay = a.Y, bx = b.X, by = b.Y;
+        double vx = bx - ax, vy = by - ay;
+        double wx = p.X - ax, wy = p.Y - ay;
+        double c1 = vx * wx + vy * wy;
+        if (c1 <= 0) return Math.Sqrt(wx * wx + wy * wy);
+        double c2 = vx * vx + vy * vy;
+        if (c2 <= c1) return Math.Sqrt((p.X - bx) * (p.X - bx) + (p.Y - by) * (p.Y - by));
+        double t = c1 / c2;
+        double projX = ax + t * vx;
+        double projY = ay + t * vy;
+        double dx = p.X - projX;
+        double dy = p.Y - projY;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    private System.Windows.Point MapToScreen(Engine.Geometry.ICoordinate coord, IMapEngine map)
+    {
+        // MapTransform을 사용한 일관된 좌표 변환 (ScreenToMap과 동일한 변환 사용)
+        return map.MapToScreen(coord);
     }
     
     /// <summary>
@@ -637,7 +989,7 @@ public partial class MapViewModel : ObservableObject
     /// <summary>
     /// 선택된 피처 하이라이트 업데이트
     /// </summary>
-    private void UpdateHighlight(IVectorLayer? sourceLayer, List<uint> featureIds)
+    private void UpdateHighlight(IVectorLayer? sourceLayer, List<uint> featureIds, List<IGeometry>? selectedGeometries = null)
     {
         if (Map == null) return;
         
@@ -658,25 +1010,48 @@ public partial class MapViewModel : ObservableObject
         {
             // 선택된 피처의 지오메트리 수집
             var geometries = new List<IGeometry>();
-            
-            // Get provider from layer
-            var provider = sourceLayer.Provider;
-            if (provider == null)
+            if (selectedGeometries != null && selectedGeometries.Count > 0)
             {
-                RequestRefresh();
-                return;
+                geometries.AddRange(selectedGeometries.Where(g => g != null));
             }
             
-            provider.Open();
-            foreach (var fid in featureIds)
+            // 1) Provider에서 직접 조회
+            var provider = sourceLayer.Provider;
+            if (geometries.Count == 0 && provider != null)
             {
-                var geom = provider.GetGeometryByID(fid);
-                if (geom != null)
+                provider.Open();
+                foreach (var fid in featureIds)
                 {
-                    geometries.Add(geom);
+                    var geom = provider.GetGeometryByID(fid);
+                    if (geom != null)
+                    {
+                        geometries.Add(geom);
+                    }
+                }
+                provider.Close();
+            }
+            // 2) Provider가 없거나 일부 누락된 경우: 엔진 레이어 캐시에서 보완
+            if (geometries.Count < featureIds.Count)
+            {
+                EngineVectorLayer? engineLayer = null;
+                if (sourceLayer is Infrastructure.GisEngine.SpatialViewVectorLayerAdapter adapter)
+                    engineLayer = adapter.GetEngineLayer();
+                else if (sourceLayer is EngineVectorLayer direct)
+                    engineLayer = direct;
+                
+                if (engineLayer != null)
+                {
+                    var allFeatures = engineLayer.GetFeatures((Envelope?)null);
+                    foreach (var fid in featureIds)
+                    {
+                        var f = allFeatures.FirstOrDefault(x => ToUIntId(x.Id) == fid);
+                        if (f?.Geometry != null)
+                        {
+                            geometries.Add(f.Geometry);
+                        }
+                    }
                 }
             }
-            provider.Close();
             
             if (geometries.Count == 0)
             {
@@ -687,8 +1062,18 @@ public partial class MapViewModel : ObservableObject
             // 하이라이트 레이어 생성
             _highlightLayer = _layerFactory.CreateHighlightLayer("_Highlight");
             
-            // TODO: 하이라이트 레이어에 지오메트리 추가
-            // 현재는 하이라이트 레이어 생성만 수행
+            // 하이라이트 피처로 채우기 (메모리 캐시)
+            if (_highlightLayer is Infrastructure.GisEngine.SpatialViewVectorLayerAdapter hlAdapter)
+            {
+                var hlEngine = hlAdapter.GetEngineLayer();
+                var features = new List<Engine.Data.Feature>();
+                uint idx = 1;
+                foreach (var geom in geometries)
+                {
+                    features.Add(new Engine.Data.Feature(idx++, geom));
+                }
+                hlEngine.SetFeatures(features);
+            }
             
             // 맨 위에 추가
             Map.Layers.Add(_highlightLayer);

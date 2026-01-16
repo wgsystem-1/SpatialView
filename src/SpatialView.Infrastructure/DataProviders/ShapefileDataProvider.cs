@@ -87,6 +87,7 @@ public class ShapefileDataProvider : IDataProvider
             var layerAdapter = new Infrastructure.GisEngine.SpatialViewVectorLayerAdapter(vectorLayer)
             {
                 DataSource = featureSource
+                // Provider는 IDataProvider(GisEngine) 타입이 필요하므로 여기서 설정하지 않음
             };
 
             return new LayerInfo

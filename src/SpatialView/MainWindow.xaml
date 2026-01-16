@@ -145,40 +145,40 @@
                     
                     <!-- Map Tools -->
                     <!-- Zoom Window Tool -->
-                    <ToggleButton Style="{StaticResource MaterialDesignIconButton}"
-                                  IsChecked="{Binding MapViewModel.ActiveTool, Mode=OneWay, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static core:MapTool.ZoomWindow}}"
-                                  Command="{Binding MapViewModel.SetToolZoomWindowCommand}"
-                                  ToolTip="선택 영역 확대"
-                                  Width="40" Height="40">
+                    <Button x:Name="ZoomWindowToolButton"
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            Click="ZoomWindowTool_Click"
+                            ToolTip="선택 영역 확대"
+                            Width="40" Height="40">
                         <Viewbox Width="24" Height="24">
                             <ContentControl Content="{StaticResource Icon_ToolbarZoomWindow}" 
                                           Foreground="{StaticResource IconPrimaryBrush}" />
                         </Viewbox>
-                    </ToggleButton>
+                    </Button>
                     
                     <!-- Select Tool -->
-                    <ToggleButton Style="{StaticResource MaterialDesignIconButton}"
-                                  IsChecked="{Binding MapViewModel.ActiveTool, Mode=OneWay, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static core:MapTool.Select}}"
-                                  Command="{Binding MapViewModel.SetToolSelectCommand}"
-                                  ToolTip="피처 선택"
-                                  Width="40" Height="40">
+                    <Button x:Name="SelectToolButton"
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            Click="SelectTool_Click"
+                            ToolTip="피처 선택"
+                            Width="40" Height="40">
                         <Viewbox Width="24" Height="24">
                             <ContentControl Content="{StaticResource Icon_Ribbon_Select}" 
                                           Foreground="{StaticResource IconPrimaryBrush}" />
                         </Viewbox>
-                    </ToggleButton>
+                    </Button>
 
                     <!-- Pan Tool -->
-                    <ToggleButton Style="{StaticResource MaterialDesignIconButton}"
-                                  IsChecked="{Binding MapViewModel.ActiveTool, Mode=OneWay, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static core:MapTool.Pan}}"
-                                  Command="{Binding MapViewModel.SetToolPanCommand}"
-                                  ToolTip="이동"
-                                  Width="40" Height="40">
+                    <Button x:Name="PanToolButton"
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            Click="PanTool_Click"
+                            ToolTip="이동"
+                            Width="40" Height="40">
                         <Viewbox Width="24" Height="24">
                             <ContentControl Content="{StaticResource Icon_Ribbon_Move}" 
                                           Foreground="{StaticResource IconPrimaryBrush}" />
                         </Viewbox>
-                    </ToggleButton>
+                    </Button>
                     
                     <!-- Full Extent -->
                     <Button Style="{StaticResource MaterialDesignIconButton}"
@@ -214,6 +214,48 @@
                                           Foreground="{StaticResource IconPrimaryBrush}" />
                         </Viewbox>
                     </ToggleButton>
+                    
+                    <Rectangle Width="1" Height="28" Fill="{StaticResource BorderBrush}" Margin="8,0"/>
+                    
+                    <!-- Measurement Tool -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Click="OpenMeasurementTool_Click"
+                            ToolTip="측정 도구 (거리/면적)"
+                            Width="40" Height="40">
+                        <materialDesign:PackIcon Kind="Ruler" Width="24" Height="24" Foreground="{StaticResource IconPrimaryBrush}"/>
+                    </Button>
+                    
+                    <!-- Coordinate Transform -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Click="OpenCoordinateTransform_Click"
+                            ToolTip="좌표계 변환"
+                            Width="40" Height="40">
+                        <materialDesign:PackIcon Kind="SwapHorizontal" Width="24" Height="24" Foreground="{StaticResource IconPrimaryBrush}"/>
+                    </Button>
+                    
+                    <!-- Export -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Click="OpenExportDialog_Click"
+                            ToolTip="지도 내보내기"
+                            Width="40" Height="40">
+                        <materialDesign:PackIcon Kind="Export" Width="24" Height="24" Foreground="{StaticResource IconPrimaryBrush}"/>
+                    </Button>
+                    
+                    <!-- Advanced Filter -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Click="OpenAdvancedFilter_Click"
+                            ToolTip="고급 필터"
+                            Width="40" Height="40">
+                        <materialDesign:PackIcon Kind="FilterVariant" Width="24" Height="24" Foreground="{StaticResource IconPrimaryBrush}"/>
+                    </Button>
+                    
+                    <!-- Edit Tools -->
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Click="OpenEditTools_Click"
+                            ToolTip="편집 도구"
+                            Width="40" Height="40">
+                        <materialDesign:PackIcon Kind="Pencil" Width="24" Height="24" Foreground="{StaticResource IconPrimaryBrush}"/>
+                    </Button>
                 </StackPanel>
                 
                 <!-- Right Side - Settings -->
@@ -236,6 +278,7 @@
                             <Button Content="❄️ 차가운 색상" Click="SetPaletteCool_Click" Style="{StaticResource MaterialDesignFlatButton}" HorizontalContentAlignment="Left"/>
                             <Button Content="🌈 무지개" Click="SetPaletteRainbow_Click" Style="{StaticResource MaterialDesignFlatButton}" HorizontalContentAlignment="Left"/>
                             <Button Content="⬛ 회색조" Click="SetPaletteGrayscale_Click" Style="{StaticResource MaterialDesignFlatButton}" HorizontalContentAlignment="Left"/>
+                            <Button Content="🔄 네거티브" Click="SetPaletteNegative_Click" Style="{StaticResource MaterialDesignFlatButton}" HorizontalContentAlignment="Left"/>
                         </StackPanel>
                     </materialDesign:PopupBox>
                     
@@ -477,6 +520,16 @@
                                                         <MenuItem Header="표시/숨김 토글" Click="ToggleVisibility_Click">
                                                             <MenuItem.Icon>
                                                                 <materialDesign:PackIcon Kind="EyeOff" Width="16" Height="16" Foreground="{StaticResource IconPrimaryBrush}"/>
+                                                            </MenuItem.Icon>
+                                                        </MenuItem>
+                                                        <MenuItem Header="라벨 설정" Click="LabelSettings_Click">
+                                                            <MenuItem.Icon>
+                                                                <materialDesign:PackIcon Kind="Label" Width="16" Height="16" Foreground="{StaticResource IconPrimaryBrush}"/>
+                                                            </MenuItem.Icon>
+                                                        </MenuItem>
+                                                        <MenuItem Header="스타일 설정" Click="LayerStyleSettings_Click">
+                                                            <MenuItem.Icon>
+                                                                <materialDesign:PackIcon Kind="Palette" Width="16" Height="16" Foreground="{StaticResource IconPrimaryBrush}"/>
                                                             </MenuItem.Icon>
                                                         </MenuItem>
                                                         <Separator/>

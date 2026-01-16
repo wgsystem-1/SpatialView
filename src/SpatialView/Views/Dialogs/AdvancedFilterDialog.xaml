@@ -1,0 +1,186 @@
+<Window x:Class="SpatialView.Views.Dialogs.AdvancedFilterDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        mc:Ignorable="d"
+        Title="고급 필터" 
+        Height="550" Width="500"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{StaticResource BackgroundBrush}">
+    
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="고급 필터" FontSize="18" FontWeight="SemiBold"
+                       Foreground="{StaticResource TextPrimaryBrush}"/>
+            <TextBlock Text="조건을 설정하여 피처를 필터링합니다."
+                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                       Margin="0,4,0,0"/>
+        </StackPanel>
+        
+        <!-- Quick Filter -->
+        <GroupBox Grid.Row="1" Header="빠른 검색" Margin="0,0,0,16">
+            <Grid Margin="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <TextBox Grid.Column="0" x:Name="QuickSearchTextBox"
+                         materialDesign:HintAssist.Hint="검색어 입력..."
+                         materialDesign:TextFieldAssist.HasClearButton="True"
+                         KeyDown="QuickSearchTextBox_KeyDown"/>
+                <Button Grid.Column="1" 
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        Click="QuickSearch_Click"
+                        ToolTip="검색"
+                        Width="40" Height="40" Margin="8,0,0,0">
+                    <materialDesign:PackIcon Kind="Magnify" Width="20" Height="20"/>
+                </Button>
+            </Grid>
+        </GroupBox>
+        
+        <!-- Filter Conditions -->
+        <GroupBox Grid.Row="2" Header="필터 조건">
+            <Grid Margin="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                
+                <!-- Add Condition -->
+                <Grid Grid.Row="0" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="100"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <ComboBox Grid.Column="0" x:Name="FieldComboBox"
+                              materialDesign:HintAssist.Hint="필드"
+                              Margin="0,0,4,0"/>
+                    
+                    <ComboBox Grid.Column="1" x:Name="OperatorComboBox"
+                              materialDesign:HintAssist.Hint="연산자"
+                              Margin="4,0">
+                        <ComboBoxItem Content="=" Tag="="/>
+                        <ComboBoxItem Content="≠" Tag="&lt;&gt;"/>
+                        <ComboBoxItem Content="&gt;" Tag="&gt;"/>
+                        <ComboBoxItem Content="≥" Tag="&gt;="/>
+                        <ComboBoxItem Content="&lt;" Tag="&lt;"/>
+                        <ComboBoxItem Content="≤" Tag="&lt;="/>
+                        <ComboBoxItem Content="포함" Tag="LIKE"/>
+                        <ComboBoxItem Content="시작" Tag="STARTS"/>
+                        <ComboBoxItem Content="끝" Tag="ENDS"/>
+                        <ComboBoxItem Content="NULL" Tag="NULL"/>
+                        <ComboBoxItem Content="NOT NULL" Tag="NOTNULL"/>
+                    </ComboBox>
+                    
+                    <TextBox Grid.Column="2" x:Name="ValueTextBox"
+                             materialDesign:HintAssist.Hint="값"
+                             Margin="4,0,0,0"/>
+                    
+                    <Button Grid.Column="3" 
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            Click="AddCondition_Click"
+                            ToolTip="조건 추가"
+                            Width="36" Height="36" Margin="4,0,0,0">
+                        <materialDesign:PackIcon Kind="Plus" Width="20" Height="20"/>
+                    </Button>
+                </Grid>
+                
+                <!-- Condition List -->
+                <ListBox Grid.Row="1" x:Name="ConditionListBox"
+                         Background="Transparent"
+                         BorderThickness="1"
+                         BorderBrush="{StaticResource BorderBrush}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <ComboBox Grid.Column="0" 
+                                          SelectedItem="{Binding LogicalOperator}"
+                                          Width="60" Margin="0,0,8,0"
+                                          Visibility="{Binding ShowLogicalOperator, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <ComboBoxItem Content="AND"/>
+                                    <ComboBoxItem Content="OR"/>
+                                </ComboBox>
+                                
+                                <TextBlock Grid.Column="1" 
+                                           Text="{Binding DisplayText}"
+                                           VerticalAlignment="Center"/>
+                                
+                                <Button Grid.Column="2"
+                                        Style="{StaticResource MaterialDesignIconButton}"
+                                        Click="RemoveCondition_Click"
+                                        Tag="{Binding}"
+                                        Width="28" Height="28">
+                                    <materialDesign:PackIcon Kind="Close" Width="14" Height="14"/>
+                                </Button>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                
+                <!-- Clear All -->
+                <Button Grid.Row="2" 
+                        Content="모든 조건 삭제"
+                        Style="{StaticResource MaterialDesignFlatButton}"
+                        Click="ClearAllConditions_Click"
+                        HorizontalAlignment="Left"
+                        Margin="0,8,0,0"/>
+            </Grid>
+        </GroupBox>
+        
+        <!-- Result Info -->
+        <Border Grid.Row="3" 
+                Background="{StaticResource SurfaceBrush}"
+                CornerRadius="4"
+                Padding="12"
+                Margin="0,16,0,0">
+            <StackPanel Orientation="Horizontal">
+                <materialDesign:PackIcon Kind="FilterOutline" Width="20" Height="20"
+                                         Foreground="{StaticResource PrimaryBrush}"
+                                         VerticalAlignment="Center"/>
+                <TextBlock x:Name="ResultInfoText"
+                           Text="필터 결과: 0개 피처"
+                           Margin="8,0,0,0"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+        
+        <!-- Buttons -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="초기화" 
+                    Style="{StaticResource MaterialDesignFlatButton}"
+                    Click="ResetButton_Click"
+                    Width="80" Margin="0,0,8,0"/>
+            <Button Content="적용" 
+                    Style="{StaticResource MaterialDesignRaisedButton}"
+                    Click="ApplyButton_Click"
+                    Width="80" Margin="0,0,8,0"/>
+            <Button Content="닫기" 
+                    Style="{StaticResource MaterialDesignFlatButton}"
+                    Click="CloseButton_Click"
+                    Width="80"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -65,23 +65,33 @@ SpatialView/
 
 ## 빌드 및 실행
 
+> ⚠️ **중요**: 항상 **Release 모드 + win-x64** 빌드를 사용합니다.
+
 ```bash
-# WPF 앱 빌드
-dotnet build src/SpatialView/SpatialView.csproj
+# WPF 앱 빌드 (Release, win-x64) - 기본 빌드 명령
+dotnet build src/SpatialView/SpatialView.csproj -c Release -r win-x64
 
 # WPF 앱 실행
-dotnet run --project src/SpatialView/SpatialView.csproj
+dotnet run --project src/SpatialView/SpatialView.csproj -c Release -r win-x64
 
 # 전체 솔루션 빌드
-dotnet build SpatialView.sln
+dotnet build SpatialView.sln -c Release -r win-x64
+```
+
+### 빌드 출력 경로
+```
+g:\Project\SpatialView\src\SpatialView\bin\Release\net10.0-windows\win-x64\SpatialView.exe
 ```
 
 ## 개발 시 유의사항
 
-1. **플랫폼**: x64 빌드 권장 (GDAL 네이티브 라이브러리)
+1. **빌드 모드**: 항상 **Release + win-x64** 사용 (GDAL 네이티브 라이브러리 호환성)
+2. **플랫폼**: x64 빌드 필수 (GDAL 네이티브 라이브러리)
 2. **GDAL**: MaxRev.Gdal.Core 사용 중, OpenFileGDB 드라이버 활성화됨
 3. **좌표계**: 대한민국 좌표계 (EPSG:5179, 5186 등) 및 WGS84 (EPSG:4326)
 4. **DI 컨테이너**: Microsoft.Extensions.DependencyInjection 사용
+5. **빌드**: 오류 및 경고를 모두 제거
+6. **빌드결과**: 빌드 결과를 한글로 보고한다.보고내용은 오류/경고 갯수, 빌드시간, 빌드시 날짜와 시간(YYYY-MM-DD HH:MM)을 포함한다.
 
 ## 주요 클래스
 

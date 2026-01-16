@@ -1233,11 +1233,12 @@ public partial class MainViewModel : ObservableObject
                 Directory.Exists(f) && f.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase)).ToList();
             var regularFiles = fileList.Except(gdbPaths).ToList();
             
-            // GDB 폴더 처리 - 레이어 선택 다이얼로그 표시
+            // GDB 폴더 처리 - 레이어 선택 다이얼로그 표시 (점진적 로딩: 이미 AddLayerToMap 호출됨)
             foreach (var gdbPath in gdbPaths)
             {
                 var gdbLayers = await LoadGdbWithDialogAsync(gdbPath);
                 layerInfoList.AddRange(gdbLayers);
+                // 참고: GDB 레이어는 LoadGdbWithDialogAsync에서 이미 AddLayerToMap 호출됨
             }
             
             // 일반 파일 처리
@@ -1245,15 +1246,16 @@ public partial class MainViewModel : ObservableObject
             {
                 var regularLayerInfos = await _dataLoaderService.LoadFilesAsync(regularFiles);
                 layerInfoList.AddRange(regularLayerInfos);
+                
+                // 일반 파일은 여기서 AddLayerToMap 호출
+                foreach (var layerInfo in regularLayerInfos)
+                {
+                    System.Diagnostics.Debug.WriteLine($"레이어 추가: {layerInfo.Name}, 피처 수: {layerInfo.FeatureCount}");
+                    AddLayerToMap(layerInfo);
+                }
             }
             
             System.Diagnostics.Debug.WriteLine($"로드된 레이어 수: {layerInfoList.Count}");
-            
-            foreach (var layerInfo in layerInfoList)
-            {
-                System.Diagnostics.Debug.WriteLine($"레이어 추가: {layerInfo.Name}, 피처 수: {layerInfo.FeatureCount}");
-                AddLayerToMap(layerInfo);
-            }
             
             var count = layerInfoList.Count;
             
@@ -1347,7 +1349,7 @@ public partial class MainViewModel : ObservableObject
             {
                 var totalLayers = dialog.SelectedLayerIndices.Length;
                 
-                // 각 레이어를 개별적으로 로드하여 진행 상황 표시
+                // 점진적 로딩: 각 레이어를 로드하면서 즉시 지도에 추가
                 for (int i = 0; i < totalLayers; i++)
                 {
                     var layerIndex = dialog.SelectedLayerIndices[i];
@@ -1359,7 +1361,17 @@ public partial class MainViewModel : ObservableObject
                     {
                         var layerInfo = await gdbProvider.LoadLayerAsync(gdbPath, layerIndex);
                         results.Add(layerInfo);
-                        System.Diagnostics.Debug.WriteLine($"레이어 로드 완료: {layerName}");
+                        
+                        // 점진적 로딩: 로드된 레이어를 즉시 지도에 추가
+                        AddLayerToMap(layerInfo);
+                        
+                        // 첫 번째 레이어 로드 시 전체 범위로 이동
+                        if (i == 0)
+                        {
+                            MapViewModel.ZoomToExtentCommand.Execute(null);
+                        }
+                        
+                        System.Diagnostics.Debug.WriteLine($"레이어 로드 및 표시 완료: {layerName}");
                     }
                     catch (Exception ex)
                     {
@@ -1462,44 +1474,49 @@ public partial class MainViewModel : ObservableObject
         // System.Drawing.Color를 System.Windows.Media.Color로 변환
         var mediaColor = System.Windows.Media.Color.FromRgb(color.R, color.G, color.B);
         
-        // 채우기 색상 (반투명)
-        var fillColor = System.Windows.Media.Color.FromArgb(128, color.R, color.G, color.B);
-        style.Fill = fillColor;
-        
-        // 외곽선 색상
+        // 기본값
+        style.Fill = System.Windows.Media.Color.FromArgb(128, color.R, color.G, color.B);
         style.Outline = mediaColor;
-        style.OutlineWidth = 1.5f;
+        style.OutlineWidth = 1.0f;     // 기본 선 두께 1px
         style.EnableOutline = true;
-        
-        // 라인 두께 (선 색상은 Outline과 공유)
-        style.LineWidth = 2.0f;
-        
-        // 포인트 크기
-        style.PointSize = 8;
-        
-        // 지오메트리 타입에 따라 스타일 조정
+        style.LineWidth = 1.0f;        // 기본 라인 두께 1px
+        style.PointSize = 4;           // 기본 포인트 크기 4px
+
+        // 지오메트리 타입별 설정
         switch (geometryType)
         {
             case GeometryType.Point:
             case GeometryType.MultiPoint:
-                style.PointSize = 10;
+                style.PointSize = 4;   // 점형 레이어 기본 크기 4px
                 break;
-                
+
             case GeometryType.Line:
             case GeometryType.LineString:
             case GeometryType.MultiLineString:
-                style.LineWidth = 2.5f;
+                // 라인은 면 채움 대신 투명
+                style.Fill = System.Windows.Media.Color.FromArgb(0, 0, 0, 0);
+                style.LineColor = System.Drawing.Color.FromArgb(mediaColor.A, mediaColor.R, mediaColor.G, mediaColor.B);
+                style.LineWidth = 1.0f;            // 기본 1px
+                style.OutlineWidth = 0;              // Outline 미사용
                 break;
-                
+
             case GeometryType.Polygon:
             case GeometryType.MultiPolygon:
+                style.Fill = System.Windows.Media.Color.FromArgb(128, color.R, color.G, color.B);
+                style.LineColor = System.Drawing.Color.FromArgb(mediaColor.A, mediaColor.R, mediaColor.G, mediaColor.B);
+                break;
+
+            default:
                 // 기본 설정 유지
                 break;
         }
-        
+
         layer.Style = style;
         
         System.Diagnostics.Debug.WriteLine($"레이어 스타일 적용: {layer.Name}, 색상: #{color.R:X2}{color.G:X2}{color.B:X2}");
+
+        // 팔레트/스타일 변경 시 즉시 리프레시
+        MapViewModel.RequestRefresh();
     }
     
     /// <summary>

@@ -51,9 +51,11 @@ public partial class AttributePanel : UserControl
             _viewModel.AddFieldRequested += OnAddFieldRequested;
             _viewModel.DeleteFieldRequested += OnDeleteFieldRequested;
             _viewModel.FieldCalculatorRequested += OnFieldCalculatorRequested;
+            _viewModel.SaveTableRequested += OnSaveTableRequested;
+            _viewModel.ExportTableRequested += OnExportTableRequested;
         }
     }
-    
+
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         if (_viewModel != null)
@@ -61,6 +63,8 @@ public partial class AttributePanel : UserControl
             _viewModel.AddFieldRequested -= OnAddFieldRequested;
             _viewModel.DeleteFieldRequested -= OnDeleteFieldRequested;
             _viewModel.FieldCalculatorRequested -= OnFieldCalculatorRequested;
+            _viewModel.SaveTableRequested -= OnSaveTableRequested;
+            _viewModel.ExportTableRequested -= OnExportTableRequested;
             _viewModel = null;
         }
     }
@@ -216,6 +220,89 @@ public partial class AttributePanel : UserControl
         if (DataContext is AttributePanelViewModel viewModel)
         {
             viewModel.ZoomToSelectedCommand.Execute(null);
+        }
+    }
+
+    /// <summary>
+    /// 데이터 소스에 저장
+    /// </summary>
+    private async void OnSaveTableRequested()
+    {
+        if (_viewModel?.AttributeTable == null)
+        {
+            MessageBox.Show("속성 테이블이 로드되지 않았습니다.", "알림",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (!_viewModel.HasUnsavedChanges)
+        {
+            MessageBox.Show("저장할 변경사항이 없습니다.", "알림",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            "변경된 속성을 원본 파일에 저장하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.",
+            "속성 저장 확인",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes)
+            return;
+
+        var (success, message) = await _viewModel.SaveToDataSourceAsync();
+
+        if (success)
+        {
+            MessageBox.Show(message, "저장 완료",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        else
+        {
+            MessageBox.Show(message, "저장 실패",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>
+    /// 테이블 내보내기 다이얼로그 표시
+    /// </summary>
+    private void OnExportTableRequested()
+    {
+        if (_viewModel?.AttributeTable == null)
+        {
+            MessageBox.Show("속성 테이블이 로드되지 않았습니다.", "알림",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var saveDialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Filter = "CSV 파일 (*.csv)|*.csv|탭 구분 파일 (*.txt)|*.txt|Excel 호환 (*.tsv)|*.tsv",
+            DefaultExt = ".csv",
+            FileName = $"{_viewModel.SelectedLayer?.Name ?? "attributes"}_{DateTime.Now:yyyyMMdd}"
+        };
+
+        if (saveDialog.ShowDialog() == true)
+        {
+            bool success;
+            var ext = System.IO.Path.GetExtension(saveDialog.FileName).ToLowerInvariant();
+
+            if (ext == ".tsv" || ext == ".txt")
+            {
+                success = _viewModel.ExportTableToTsv(saveDialog.FileName);
+            }
+            else
+            {
+                success = _viewModel.ExportTableToCsv(saveDialog.FileName);
+            }
+
+            if (success)
+            {
+                MessageBox.Show($"속성 테이블이 내보내졌습니다.\n{saveDialog.FileName}", "내보내기 완료",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+            }
         }
     }
 }

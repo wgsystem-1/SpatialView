@@ -81,35 +81,54 @@ public class LevelOfDetail
     
     private void InitializeDefaultLodLevels()
     {
-        // 줌 레벨별 기본 LOD 설정
-        _lodLevels[1] = new LodLevel 
+        // 줌 레벨별 기본 LOD 설정 (줌 = 픽셀당 미터)
+        // 줌 값이 클수록 멀리서 보는 것 (축소), 작을수록 가까이서 보는 것 (확대)
+        
+        // 매우 축소된 상태 (전국 단위)
+        _lodLevels[10000] = new LodLevel 
         { 
             SimplificationTolerance = 1000.0, 
-            MinFeatureSize = 100.0,
-            MaxFeatures = 100 
-        };
-        _lodLevels[5] = new LodLevel 
-        { 
-            SimplificationTolerance = 100.0, 
-            MinFeatureSize = 50.0,
+            MinFeatureSize = 5000.0,  // 5km 이상만 표시
             MaxFeatures = 500 
         };
-        _lodLevels[10] = new LodLevel 
+        
+        // 축소된 상태 (광역 단위)
+        _lodLevels[5000] = new LodLevel 
+        { 
+            SimplificationTolerance = 500.0, 
+            MinFeatureSize = 2000.0,  // 2km 이상만 표시
+            MaxFeatures = 1000 
+        };
+        
+        // 중간 축소 (시/군 단위)
+        _lodLevels[1000] = new LodLevel 
+        { 
+            SimplificationTolerance = 100.0, 
+            MinFeatureSize = 500.0,  // 500m 이상만 표시
+            MaxFeatures = 3000 
+        };
+        
+        // 약간 축소 (구/동 단위)
+        _lodLevels[100] = new LodLevel 
         { 
             SimplificationTolerance = 10.0, 
-            MinFeatureSize = 10.0,
-            MaxFeatures = 2000 
-        };
-        _lodLevels[15] = new LodLevel 
-        { 
-            SimplificationTolerance = 1.0, 
-            MinFeatureSize = 1.0,
+            MinFeatureSize = 50.0,  // 50m 이상만 표시
             MaxFeatures = 10000 
         };
-        _lodLevels[20] = new LodLevel 
+        
+        // 확대된 상태 (필지 단위)
+        _lodLevels[10] = new LodLevel 
+        { 
+            SimplificationTolerance = 1.0, 
+            MinFeatureSize = 5.0,  // 5m 이상만 표시
+            MaxFeatures = 50000 
+        };
+        
+        // 매우 확대된 상태 (상세 보기)
+        _lodLevels[1] = new LodLevel 
         { 
             SimplificationTolerance = 0.1, 
-            MinFeatureSize = 0.1,
+            MinFeatureSize = 0.0,  // 모든 피처 표시
             MaxFeatures = int.MaxValue 
         };
     }
@@ -293,14 +312,156 @@ public class LodLevel
     /// 지오메트리 단순화 허용 오차
     /// </summary>
     public double SimplificationTolerance { get; set; }
-    
+
     /// <summary>
     /// 표시할 최소 피처 크기 (맵 단위)
     /// </summary>
     public double MinFeatureSize { get; set; }
-    
+
     /// <summary>
     /// 최대 표시 피처 수
     /// </summary>
     public int MaxFeatures { get; set; }
+}
+
+/// <summary>
+/// LOD 정적 유틸리티 메서드
+/// </summary>
+public static class LodUtils
+{
+    /// <summary>
+    /// LOD 레벨 열거형
+    /// </summary>
+    public enum LODLevel
+    {
+        VeryLow = 0,
+        Low = 1,
+        Medium = 2,
+        High = 3,
+        VeryHigh = 4
+    }
+
+    /// <summary>
+    /// 줌 레벨에서 LOD 레벨 계산
+    /// </summary>
+    /// <param name="zoom">현재 줌 레벨 (미터/픽셀)</param>
+    /// <returns>LOD 레벨</returns>
+    public static LODLevel CalculateLODLevel(double zoom)
+    {
+        // zoom 값이 클수록 멀리서 보는 것 (축소 상태)
+        // zoom 값이 작을수록 가까이서 보는 것 (확대 상태)
+        return zoom switch
+        {
+            > 5000 => LODLevel.VeryLow,   // 전국 단위
+            > 1000 => LODLevel.Low,       // 광역 단위
+            > 100 => LODLevel.Medium,     // 시/군 단위
+            > 10 => LODLevel.High,        // 구/동 단위
+            _ => LODLevel.VeryHigh        // 필지 상세
+        };
+    }
+
+    /// <summary>
+    /// 지오메트리를 렌더링할지 결정
+    /// </summary>
+    public static bool ShouldRenderGeometry(IGeometry? geometry, Rendering.RenderContext context, LODLevel lodLevel)
+    {
+        if (geometry == null) return false;
+
+        var envelope = geometry.Envelope;
+        if (envelope == null || envelope.IsNull) return true; // 범위를 알 수 없으면 렌더링
+
+        // 해상도(맵 단위/픽셀)
+        var resolution = context.ViewExtent.Width / Math.Max(1.0, context.ScreenSize.Width);
+
+        // 화면 픽셀 크기로 변환
+        var widthPixels = envelope.Width / resolution;
+        var heightPixels = envelope.Height / resolution;
+        var maxPixels = Math.Max(widthPixels, heightPixels);
+
+        // LOD 레벨에 따른 최소 픽셀 크기 (작은 객체 필터링)
+        var minPixelThreshold = lodLevel switch
+        {
+            LODLevel.VeryLow => 5.0,   // 5픽셀 이상만
+            LODLevel.Low => 3.0,       // 3픽셀 이상만
+            LODLevel.Medium => 2.0,    // 2픽셀 이상만
+            LODLevel.High => 1.0,      // 1픽셀 이상만
+            _ => 0.5                   // 거의 모두 표시
+        };
+
+        // 포인트는 항상 렌더링 (크기 기반 필터링 제외)
+        if (geometry is Point || geometry is MultiPoint)
+        {
+            return true;
+        }
+
+        return maxPixels >= minPixelThreshold;
+    }
+
+    /// <summary>
+    /// 심볼을 렌더링할지 결정
+    /// </summary>
+    public static bool ShouldRenderSymbol(LODLevel lodLevel, double symbolSize)
+    {
+        // 매우 축소된 상태에서는 작은 심볼 생략
+        var minSize = lodLevel switch
+        {
+            LODLevel.VeryLow => 8.0,
+            LODLevel.Low => 6.0,
+            LODLevel.Medium => 4.0,
+            _ => 2.0
+        };
+
+        return symbolSize >= minSize;
+    }
+
+    /// <summary>
+    /// 라인을 단순화할지 결정
+    /// </summary>
+    public static bool ShouldSimplifyLine(LODLevel lodLevel, double totalPixelLength, int pointCount)
+    {
+        if (pointCount <= 2) return false;
+
+        // 픽셀당 포인트 밀도가 높으면 단순화
+        var density = pointCount / totalPixelLength;
+
+        return lodLevel switch
+        {
+            LODLevel.VeryLow => density > 0.05,  // 20픽셀당 1포인트 이상이면 단순화
+            LODLevel.Low => density > 0.1,       // 10픽셀당 1포인트 이상
+            LODLevel.Medium => density > 0.2,    // 5픽셀당 1포인트 이상
+            LODLevel.High => density > 0.5,      // 2픽셀당 1포인트 이상
+            _ => density > 1.0                   // 1픽셀당 1포인트 이상
+        };
+    }
+
+    /// <summary>
+    /// 단순화 허용 오차 계산
+    /// </summary>
+    public static double GetSimplificationTolerance(LODLevel lodLevel, double resolution)
+    {
+        // resolution = 맵 단위/픽셀
+        return lodLevel switch
+        {
+            LODLevel.VeryLow => resolution * 10,  // 10픽셀 허용 오차
+            LODLevel.Low => resolution * 5,       // 5픽셀
+            LODLevel.Medium => resolution * 2,    // 2픽셀
+            LODLevel.High => resolution * 1,      // 1픽셀
+            _ => resolution * 0.5                 // 0.5픽셀
+        };
+    }
+
+    /// <summary>
+    /// 최대 렌더링 피처 수 계산
+    /// </summary>
+    public static int GetMaxFeatures(LODLevel lodLevel)
+    {
+        return lodLevel switch
+        {
+            LODLevel.VeryLow => 500,
+            LODLevel.Low => 2000,
+            LODLevel.Medium => 10000,
+            LODLevel.High => 50000,
+            _ => int.MaxValue
+        };
+    }
 }
